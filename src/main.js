@@ -30,6 +30,9 @@ const PLAYER_ASSET_PATH = "assets/images/kepaladesa1";
 const PLAYER_SCALE = 0.46;
 const VILLAGE_ASSET_PATH = "assets/assetdesa";
 const VILLAGE_CUSTOM_ASSET_KEY = "villageCustomAssets.v1";
+const EDITOR_LAYOUT_PREFIX = "gameLayout.";
+const LEGACY_VILLAGE_LAYOUT_KEY = "villageLayout.v1";
+const DEFAULT_EDITOR_PLAYER_DEPTH = 20;
 
 function getAssetUrl(path) {
   return new URL(path.split("/").map((part) => encodeURIComponent(part)).join("/"), window.location.href).href;
@@ -44,6 +47,30 @@ function getStoredVillageCustomAssets() {
     return JSON.parse(window.localStorage.getItem(VILLAGE_CUSTOM_ASSET_KEY) || "{}");
   } catch (error) {
     return {};
+  }
+}
+
+function getStoredEditorLayout(layoutId) {
+  if (!window.localStorage) {
+    return null;
+  }
+
+  try {
+    const storageKey = `${EDITOR_LAYOUT_PREFIX}${layoutId}.v1`;
+    const raw = window.localStorage.getItem(storageKey)
+      || (layoutId === "village" ? window.localStorage.getItem(LEGACY_VILLAGE_LAYOUT_KEY) : null);
+    if (!raw) {
+      return null;
+    }
+
+    const layout = JSON.parse(raw);
+    if (!layout || !Array.isArray(layout.objects) || layout.objects.length === 0) {
+      return null;
+    }
+
+    return layout;
+  } catch (error) {
+    return null;
   }
 }
 
@@ -225,6 +252,116 @@ class BaseScene extends Phaser.Scene {
     return tile;
   }
 
+  getEditorLayout(layoutId) {
+    return getStoredEditorLayout(layoutId);
+  }
+
+  renderEditorAssetLayout(layout, options = {}) {
+    if (!layout || !Array.isArray(layout.objects)) {
+      return false;
+    }
+
+    if (options.resetBarriers !== false) {
+      this.editorBarrierBodies = [];
+    }
+
+    const layoutId = options.layoutId || layout.target || "";
+    const labelStyle = {
+      fontFamily: "Arial, sans-serif",
+      fontSize: options.labelFontSize || "15px",
+      color: options.labelColor || "#fff4d4",
+      backgroundColor: options.labelBackground || "#3d2a1e",
+      padding: { x: 7, y: 3 }
+    };
+
+    const fitToScreen = Boolean(options.fitToScreen);
+    const ratioX = fitToScreen ? GAME_WIDTH / (layout.mapWidth || GAME_WIDTH) : 1;
+    const ratioY = fitToScreen ? GAME_HEIGHT / (layout.mapHeight || GAME_HEIGHT) : 1;
+    const scaleRatio = fitToScreen ? Math.min(ratioX, ratioY) : 1;
+
+    [...layout.objects]
+      .sort((a, b) => (a.depth || 0) - (b.depth || 0))
+      .forEach((object) => {
+        const renderedObject = {
+          ...object,
+          x: object.x * ratioX,
+          y: object.y * ratioY,
+          scale: (object.scale || 1) * scaleRatio,
+          width: object.width ? object.width * ratioX : object.width,
+          height: object.height ? object.height * ratioY : object.height
+        };
+
+        if (renderedObject.type === "barrier" || renderedObject.role === "barrier") {
+          this.addEditorBarrierBlock(renderedObject);
+          return;
+        }
+
+        const image = this.addVillageAsset(renderedObject.key, renderedObject.x, renderedObject.y, renderedObject.scale || 1, renderedObject.depth || 10, {
+          alpha: object.alpha === undefined ? 1 : object.alpha,
+          rotation: object.rotation || 0,
+          flipX: Boolean(object.flipX),
+          tint: object.tint
+        });
+
+        const zone = this.getEditorObjectZone(renderedObject, image);
+
+        if (object.label) {
+          this.add.text(renderedObject.x, renderedObject.y + ((object.labelOffsetY || 84) * renderedObject.scale), object.label, labelStyle)
+            .setOrigin(0.5)
+            .setDepth((object.depth || 10) + 30);
+        }
+
+        if (object.role && typeof this.handleEditorLayoutRole === "function") {
+          this.handleEditorLayoutRole(object.role, zone, renderedObject, layoutId, image);
+        }
+      });
+
+    return true;
+  }
+
+  getEditorObjectZone(object, image) {
+    const scale = object.scale || 1;
+    const width = image ? Math.max(40, Math.abs(image.displayWidth)) : 64 * scale;
+    const height = image ? Math.max(40, Math.abs(image.displayHeight)) : 64 * scale;
+    return new Phaser.Geom.Rectangle(
+      object.x - (width / 2),
+      object.y - (height / 2),
+      width,
+      height
+    );
+  }
+
+  addEditorBarrierBlock(object) {
+    const width = Math.max(8, object.width || 64);
+    const height = Math.max(8, object.height || 64);
+    const barrier = this.add.rectangle(object.x, object.y, width, height, 0x000000, 0);
+    barrier.setDepth(object.depth || 250);
+    this.physics.add.existing(barrier, true);
+
+    if (barrier.body) {
+      barrier.body.setSize(width, height);
+      barrier.body.updateFromGameObject();
+    }
+
+    if (!this.editorBarrierBodies) {
+      this.editorBarrierBodies = [];
+    }
+    this.editorBarrierBodies.push(barrier);
+    return barrier;
+  }
+
+  addEditorBarrierColliders(player) {
+    if (!player || !this.editorBarrierBodies || this.editorBarrierBodies.length === 0) {
+      return;
+    }
+
+    this.editorBarrierBodies.forEach((barrier) => {
+      if (barrier && barrier.body) {
+        this.physics.add.collider(player, barrier);
+      }
+    });
+  }
+
   loadPlayerAssets() {
     if (this.textures.exists("kepaladesa_bawah_1")) {
       return;
@@ -273,13 +410,32 @@ class BaseScene extends Phaser.Scene {
     }
   }
 
-  createPlayerSprite(x, y) {
+  getEditorPlayerDepth(layoutId, fallback = DEFAULT_EDITOR_PLAYER_DEPTH) {
+    const layout = layoutId ? this.getEditorLayout(layoutId) : null;
+    const depth = layout && Number.isFinite(Number(layout.playerDepth))
+      ? Number(layout.playerDepth)
+      : fallback;
+    return depth;
+  }
+
+  applyPlayerLayer(player, label, layoutId, fallback = DEFAULT_EDITOR_PLAYER_DEPTH) {
+    const depth = this.getEditorPlayerDepth(layoutId, fallback);
+    if (player) {
+      player.setDepth(depth);
+    }
+    if (label) {
+      label.setDepth(depth + 1);
+    }
+    return depth;
+  }
+
+  createPlayerSprite(x, y, options = {}) {
     this.createPlayerAnimations();
 
     const player = this.physics.add.sprite(x, y, "kepaladesa_bawah_1");
     player.setScale(PLAYER_SCALE);
     player.setOrigin(0.5, 0.88);
-    player.setDepth(20);
+    player.setDepth(Number.isFinite(Number(options.depth)) ? Number(options.depth) : DEFAULT_EDITOR_PLAYER_DEPTH);
     player.lastDirection = "down";
 
     if (gameState.leader === 2) {
@@ -549,6 +705,51 @@ class SceneSiang extends BaseScene {
     } else if (gameState.leader === 2) {
       this.createActTwoOfficeDamage(deskY);
     }
+
+    this.applyOfficeEditorLayout();
+  }
+
+  applyOfficeEditorLayout() {
+    const layoutId = gameState.leader === 2 && gameState.actTwoOfficeLuxury ? "luxuryOffice" : "office";
+    const layout = this.getEditorLayout(layoutId);
+    if (!layout) {
+      return;
+    }
+
+    this.renderEditorAssetLayout(layout, {
+      layoutId,
+      fitToScreen: true,
+      labelColor: "#fff3d1",
+      labelBackground: "#3d2a1e"
+    });
+  }
+
+  handleEditorLayoutRole(role, zone, object, layoutId) {
+    if (layoutId === "office" || layoutId === "luxuryOffice") {
+      if (role === "projectDesk") {
+        this.projectDeskZone = zone;
+      } else if (role === "exitDoor") {
+        this.exitDoorZone = zone;
+        this.prisonDoorZone = zone;
+      } else if (role === "phone") {
+        this.prisonPhoneZone = zone;
+      } else if (role === "chair") {
+        this.prisonChairZone = zone;
+      } else if (role === "moneyPile") {
+        this.prisonMoneyZone = zone;
+      } else if (role === "window") {
+        this.escapeWindowZone = zone;
+      }
+      return;
+    }
+
+    if (layoutId === "act3Office") {
+      if (role === "actThreeRuin") {
+        this.actThreeRuinZone = zone;
+      } else if (role === "actThreeExit") {
+        this.actThreeExitZone = zone;
+      }
+    }
   }
 
   createActThreeProtestExterior() {
@@ -634,9 +835,19 @@ class SceneSiang extends BaseScene {
     this.actThreeRuinZone = new Phaser.Geom.Rectangle(CENTER_X - 170, ruinY - 92, 340, 180);
     this.actThreeExitZone = new Phaser.Geom.Rectangle(0, GAME_HEIGHT - 96, GAME_WIDTH, 120);
 
+    this.renderEditorAssetLayout(this.getEditorLayout("act3Office"), {
+      layoutId: "act3Office",
+      fitToScreen: true,
+      labelColor: "#c9bca8",
+      labelBackground: "#17110f"
+    });
+
     this.createDemoCrowd();
-    this.player = this.createPlayerSprite(CENTER_X, buildingY + 208);
+    this.player = this.createPlayerSprite(CENTER_X, buildingY + 208, {
+      depth: this.getEditorPlayerDepth("act3Office")
+    });
     this.player.body.setCollideWorldBounds(true);
+    this.addEditorBarrierColliders(this.player);
     this.playerLabel = this.add.text(this.player.x, this.getPlayerLabelY(this.player), "Kepala Desa III", {
       fontFamily: "Arial, sans-serif",
       fontSize: "14px",
@@ -644,6 +855,7 @@ class SceneSiang extends BaseScene {
       backgroundColor: "#17110f",
       padding: { x: 6, y: 2 }
     }).setOrigin(0.5);
+    this.applyPlayerLayer(this.player, this.playerLabel, "act3Office");
   }
 
   createDemoCrowd() {
@@ -1123,6 +1335,10 @@ class SceneSiang extends BaseScene {
   }
 
   createGoldenPrisonObjects() {
+    const customChairZone = this.prisonChairZone;
+    const customMoneyZone = this.prisonMoneyZone;
+    const customPhoneZone = this.prisonPhoneZone;
+    const customDoorZone = this.prisonDoorZone;
     const deskY = OFFICE_TOP + 136;
     this.add.rectangle(CENTER_X, CENTER_Y, OFFICE_WIDTH, OFFICE_HEIGHT, 0xffd329, 0.13)
       .setDepth(69)
@@ -1207,10 +1423,10 @@ class SceneSiang extends BaseScene {
       repeat: -1
     });
 
-    this.prisonChairZone = new Phaser.Geom.Rectangle(CENTER_X - 88, chairY - 112, 176, 210);
-    this.prisonMoneyZone = new Phaser.Geom.Rectangle(moneyX - 60, moneyY - 90, 170, 150);
-    this.prisonPhoneZone = new Phaser.Geom.Rectangle(phoneX - 76, phoneY - 54, 152, 112);
-    this.prisonDoorZone = new Phaser.Geom.Rectangle(CENTER_X - 110, doorY - 104, 220, 140);
+    this.prisonChairZone = customChairZone || new Phaser.Geom.Rectangle(CENTER_X - 88, chairY - 112, 176, 210);
+    this.prisonMoneyZone = customMoneyZone || new Phaser.Geom.Rectangle(moneyX - 60, moneyY - 90, 170, 150);
+    this.prisonPhoneZone = customPhoneZone || new Phaser.Geom.Rectangle(phoneX - 76, phoneY - 54, 152, 112);
+    this.prisonDoorZone = customDoorZone || new Phaser.Geom.Rectangle(CENTER_X - 110, doorY - 104, 220, 140);
 
     this.input.on("pointerdown", this.handleGoldenPrisonPointer, this);
   }
@@ -1580,7 +1796,7 @@ class SceneSiang extends BaseScene {
     this.phase = "escapeAttempt";
     this.inputLocked = false;
     this.playerSpeed = 20;
-    this.escapeWindowZone = new Phaser.Geom.Rectangle(OFFICE_LEFT + 44, OFFICE_TOP + 70, 150, 160);
+    this.escapeWindowZone = this.escapeWindowZone || new Phaser.Geom.Rectangle(OFFICE_LEFT + 44, OFFICE_TOP + 70, 150, 160);
     this.showPrisonMessage("Lari lewat jendela.");
   }
 
@@ -1865,15 +2081,20 @@ class SceneSiang extends BaseScene {
       : this.wakeFromNightmare
         ? OFFICE_TOP + 258
       : OFFICE_BOTTOM - 60;
-    this.player = this.createPlayerSprite(CENTER_X - 10, playerStartY);
+    const playerLayoutId = gameState.leader === 2 && gameState.actTwoOfficeLuxury ? "luxuryOffice" : "office";
+    this.player = this.createPlayerSprite(CENTER_X - 10, playerStartY, {
+      depth: this.getEditorPlayerDepth(playerLayoutId)
+    });
     this.player.body.setCollideWorldBounds(true);
     this.physics.add.collider(this.player, this.frontDesk);
+    this.addEditorBarrierColliders(this.player);
 
     this.playerLabel = this.add.text(this.player.x, this.getPlayerLabelY(this.player), gameState.leader === 2 ? "Kepala Desa Baru" : "Kepala Desa", {
       fontFamily: "Arial, sans-serif",
       fontSize: "14px",
       color: "#10233d"
     }).setOrigin(0.5);
+    this.applyPlayerLayer(this.player, this.playerLabel, playerLayoutId);
 
     this.contractor = null;
     this.contractorLabel = null;
@@ -2593,6 +2814,7 @@ class SceneSiang extends BaseScene {
   }
 
   createExitDoor() {
+    const customExitDoorZone = this.exitDoorZone;
     const doorY = OFFICE_BOTTOM - 36;
 
     this.add.rectangle(CENTER_X, doorY, 150, 72, 0x4e3828, 1);
@@ -2604,7 +2826,7 @@ class SceneSiang extends BaseScene {
       color: "#3f2815"
     }).setOrigin(0.5);
 
-    this.exitDoorZone = new Phaser.Geom.Rectangle(CENTER_X - 90, doorY - 74, 180, 112);
+    this.exitDoorZone = customExitDoorZone || new Phaser.Geom.Rectangle(CENTER_X - 90, doorY - 74, 180, 112);
   }
 
   createSecretaryEntrance() {
@@ -3248,25 +3470,7 @@ class SceneDesa extends BaseScene {
   }
 
   getSavedVillageEditorLayout() {
-    if (!window.localStorage) {
-      return null;
-    }
-
-    try {
-      const raw = window.localStorage.getItem("villageLayout.v1");
-      if (!raw) {
-        return null;
-      }
-
-      const layout = JSON.parse(raw);
-      if (!layout || !Array.isArray(layout.objects) || layout.objects.length === 0) {
-        return null;
-      }
-
-      return layout;
-    } catch (error) {
-      return null;
-    }
+    return this.getEditorLayout("village");
   }
 
   renderVillageEditorLayout(layout) {
@@ -3586,14 +3790,18 @@ class SceneDesa extends BaseScene {
   createVillagePlayer() {
     const startX = this.actThreeStart ? 240 : this.startAtHome ? 460 : 240;
     const startY = this.actThreeStart ? 1118 : this.startAtHome ? 650 : 1118;
-    this.player = this.createPlayerSprite(startX, startY);
+    this.player = this.createPlayerSprite(startX, startY, {
+      depth: this.getEditorPlayerDepth("village")
+    });
     this.player.body.setCollideWorldBounds(true);
+    this.addEditorBarrierColliders(this.player);
 
     this.playerLabel = this.add.text(this.player.x, this.getPlayerLabelY(this.player), this.actThreeStart ? "Kepala Desa III" : "Kepala Desa", {
       fontFamily: "Arial, sans-serif",
       fontSize: "14px",
       color: "#e7f0ff"
     }).setOrigin(0.5);
+    this.applyPlayerLayer(this.player, this.playerLabel, "village");
   }
 
   createVillageControls() {
@@ -3973,6 +4181,7 @@ class SceneRumah extends BaseScene {
     if (this.secondDay) {
       this.createBedroomAftermathObjects();
     }
+    this.applyHomeEditorLayout();
     this.createHomePlayer();
     this.createHomeControls();
     this.createStatusUi();
@@ -4042,6 +4251,32 @@ class SceneRumah extends BaseScene {
     }).setOrigin(0.5);
   }
 
+  applyHomeEditorLayout() {
+    const layout = this.getEditorLayout("home");
+    if (!layout) {
+      return;
+    }
+
+    this.renderEditorAssetLayout(layout, {
+      layoutId: "home",
+      fitToScreen: true,
+      labelColor: "#e8edf7",
+      labelBackground: "#17151e"
+    });
+  }
+
+  handleEditorLayoutRole(role, zone) {
+    if (role === "homeExit") {
+      this.homeExitZone = zone;
+    } else if (role === "bed") {
+      this.sleepZone = zone;
+    } else if (role === "moneyBag") {
+      this.moneyBagZone = zone;
+    } else if (role === "mirror") {
+      this.mirrorZone = zone;
+    }
+  }
+
   createBedroomAftermathObjects() {
     const bagX = this.homeBedroomX + 126;
     const bagY = this.homeBedroomY + 104;
@@ -4075,14 +4310,18 @@ class SceneRumah extends BaseScene {
       ? this.homeBedroomY + 112
       : Math.min(GAME_HEIGHT - 150, CENTER_Y + 180);
 
-    this.player = this.createPlayerSprite(startX, startY);
+    this.player = this.createPlayerSprite(startX, startY, {
+      depth: this.getEditorPlayerDepth("home")
+    });
     this.player.body.setCollideWorldBounds(true);
+    this.addEditorBarrierColliders(this.player);
 
     this.playerLabel = this.add.text(this.player.x, this.getPlayerLabelY(this.player), "Kepala Desa", {
       fontFamily: "Arial, sans-serif",
       fontSize: "14px",
       color: "#dfe9ff"
     }).setOrigin(0.5);
+    this.applyPlayerLayer(this.player, this.playerLabel, "home");
   }
 
   createHomeControls() {
@@ -4372,7 +4611,7 @@ class SceneMalam extends BaseScene {
 
     this.createNightmareControls();
     this.createDreamBedroom();
-    this.createNightmarePlayer(this.dreamWakeX, this.dreamWakeY);
+    this.createNightmarePlayer(this.dreamWakeX, this.dreamWakeY, "dreamBedroom");
     this.createStatusUi();
     this.createNightmarePrompt(this.actTwoNightmare
       ? "Kamu terbangun. Sirine jauh masih berdenging di dalam kepala."
@@ -4470,6 +4709,44 @@ class SceneMalam extends BaseScene {
     this.exitZone = new Phaser.Geom.Rectangle(CENTER_X - 100, homeBottom - 118, 200, 140);
     this.dreamWakeX = bedroomX;
     this.dreamWakeY = bedroomY + 112;
+    this.applyDreamBedroomEditorLayout();
+  }
+
+  applyDreamBedroomEditorLayout() {
+    const layout = this.getEditorLayout("dreamBedroom");
+    if (!layout) {
+      return;
+    }
+
+    this.renderEditorAssetLayout(layout, {
+      layoutId: "dreamBedroom",
+      fitToScreen: true,
+      labelColor: "#ddd1df",
+      labelBackground: "#0b0a0f"
+    });
+  }
+
+  applyNightmareVillageEditorLayout() {
+    const layout = this.getEditorLayout("nightmare");
+    if (!layout) {
+      return;
+    }
+
+    this.renderEditorAssetLayout(layout, {
+      layoutId: "nightmare",
+      labelColor: "#ddd1df",
+      labelBackground: "#0b0a0f"
+    });
+  }
+
+  handleEditorLayoutRole(role, zone, object, layoutId) {
+    if (layoutId === "dreamBedroom" && role === "homeExit") {
+      this.exitZone = zone;
+    } else if (layoutId === "nightmare" && role === "dreamMirror") {
+      this.mirrorZone = zone;
+    } else if (layoutId === "dreamBedroom" && (role === "mirror" || role === "dreamMirror")) {
+      this.mirrorZone = zone;
+    }
   }
 
   createActTwoBedroomDread(homeWidth, homeHeight) {
@@ -4493,14 +4770,18 @@ class SceneMalam extends BaseScene {
     }).setOrigin(0.5).setDepth(4);
   }
 
-  createNightmarePlayer(x, y) {
-    this.player = this.createPlayerSprite(x, y);
+  createNightmarePlayer(x, y, layoutId = this.nightmarePhase === "bedroom" ? "dreamBedroom" : "nightmare") {
+    this.player = this.createPlayerSprite(x, y, {
+      depth: this.getEditorPlayerDepth(layoutId)
+    });
     this.player.body.setCollideWorldBounds(true);
+    this.addEditorBarrierColliders(this.player);
     this.playerLabel = this.add.text(this.player.x, this.getPlayerLabelY(this.player), "Kepala Desa", {
       fontFamily: "Arial, sans-serif",
       fontSize: "14px",
       color: "#e6e6f0"
     }).setOrigin(0.5);
+    this.applyPlayerLayer(this.player, this.playerLabel, layoutId);
   }
 
   createNightmarePrompt(message) {
@@ -4598,7 +4879,7 @@ class SceneMalam extends BaseScene {
       this.cameras.main.setBackgroundColor("#0c0d12");
 
       this.createRuinedVillage();
-      this.createNightmarePlayer(1780, 628);
+      this.createNightmarePlayer(1780, 628, "nightmare");
       this.playerSpeed = 95;
       this.createStatusUi();
       this.createNightmarePrompt(this.actTwoNightmare
@@ -4647,6 +4928,7 @@ class SceneMalam extends BaseScene {
     this.createHauntedVillagers();
     this.addNightmareTrees();
     this.createDreamMirror();
+    this.applyNightmareVillageEditorLayout();
 
     if (this.actTwoNightmare) {
       this.createActTwoNightmareVillageDetails();
@@ -5183,6 +5465,13 @@ class ScenePelantikan extends BaseScene {
       fontSize: "18px",
       color: "#f9dfb1"
     }).setOrigin(0.5);
+
+    this.renderEditorAssetLayout(this.getEditorLayout("ceremony"), {
+      layoutId: "ceremony",
+      fitToScreen: true,
+      labelColor: "#ffe7b3",
+      labelBackground: "#4f2f25"
+    });
   }
 
   createCrowd() {
@@ -5252,10 +5541,12 @@ class ScenePelantikan extends BaseScene {
     const stageY = Math.max(170, GAME_HEIGHT * 0.28);
     const podiumY = stageY + 62;
 
-    const leader = this.createPlayerSprite(CENTER_X, podiumY - 8);
+    const leader = this.createPlayerSprite(CENTER_X, podiumY - 8, {
+      depth: this.getEditorPlayerDepth("ceremony", 80)
+    });
     leader.setScale(PLAYER_SCALE * 0.86);
     leader.setTint(0xb8d8ff);
-    leader.setDepth(80);
+    leader.setDepth(this.getEditorPlayerDepth("ceremony", 80));
     leader.lastDirection = "down";
     leader.setTexture("kepaladesa_bawah_1");
 
@@ -5277,7 +5568,7 @@ class ScenePelantikan extends BaseScene {
       color: "#ffffff",
       stroke: "#1d2730",
       strokeThickness: 4
-    }).setOrigin(0.5).setDepth(84);
+    }).setOrigin(0.5).setDepth(this.getEditorPlayerDepth("ceremony", 80) + 4);
   }
 
   createSpeechUi() {
@@ -6832,6 +7123,12 @@ class SceneEnding extends BaseScene {
     }).setOrigin(0, 0.5);
 
     this.createHungryChild(1450, 430);
+
+    this.renderEditorAssetLayout(this.getEditorLayout("ending"), {
+      layoutId: "ending",
+      labelColor: "#eadccc",
+      labelBackground: "#17110f"
+    });
   }
 
   createHungryChild(x, y) {
@@ -6871,8 +7168,11 @@ class SceneEnding extends BaseScene {
   }
 
   createEndingPlayer() {
-    this.player = this.createPlayerSprite(120, 520);
+    this.player = this.createPlayerSprite(120, 520, {
+      depth: this.getEditorPlayerDepth("ending")
+    });
     this.player.body.setCollideWorldBounds(true);
+    this.addEditorBarrierColliders(this.player);
     this.playerLabel = this.add.text(this.player.x, this.getPlayerLabelY(this.player), "Kepala Desa III", {
       fontFamily: "Arial, sans-serif",
       fontSize: "14px",
@@ -6880,6 +7180,7 @@ class SceneEnding extends BaseScene {
       backgroundColor: "#17110f",
       padding: { x: 6, y: 2 }
     }).setOrigin(0.5);
+    this.applyPlayerLayer(this.player, this.playerLabel, "ending");
   }
 
   setupEndingCamera() {
