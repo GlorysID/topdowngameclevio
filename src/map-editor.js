@@ -1,32 +1,7 @@
 const STORAGE_KEY = "villageLayout.v1";
+const CUSTOM_ASSET_KEY = "villageCustomAssets.v1";
 const MAP_WIDTH = 2200;
 const MAP_HEIGHT = 1400;
-
-const EDITOR_ASSETS = [
-  ["house2Day", "Rumah 2 Day"],
-  ["house1Day", "Rumah 1 Day"],
-  ["tree1Day", "Pohon 1"],
-  ["tree2Day", "Pohon 2"],
-  ["tree3Day", "Pohon 3"],
-  ["terrain3Day", "Tebing 3"],
-  ["terrain4Day", "Tebing 4"],
-  ["terrain3CurveDay", "Tebing Curve 3"],
-  ["terrain4CurveDay", "Tebing Curve 4"],
-  ["grassDay", "Rumput Tile"],
-  ["groundDay", "Tanah Tile"],
-  ["waterDay", "Air Tile"],
-  ["bridgeDay", "Bridge"],
-  ["stairsDay", "Tangga"],
-  ["fence1Day", "Pagar 1"],
-  ["fence2Day", "Pagar 2"],
-  ["pitDay", "Sumur/Pit"],
-  ["grassDetail1Day", "Rumput Detail 1"],
-  ["grassDetail2Day", "Rumput Detail 2"],
-  ["grassDetail3Day", "Rumput Detail 3"],
-  ["groundDetail1Day", "Tanah Detail 1"],
-  ["groundDetail2Day", "Tanah Detail 2"],
-  ["groundDetail3Day", "Tanah Detail 3"]
-];
 
 const DEFAULT_LAYOUT = {
   version: 1,
@@ -72,6 +47,61 @@ function cloneLayout(layout) {
 
 function byId(id) {
   return document.getElementById(id);
+}
+
+function keyFromFileName(fileName) {
+  const base = fileName
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g);
+  const words = base && base.length ? base : ["asset"];
+  return `custom${words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join("")}`;
+}
+
+function createUniqueAssetKey(baseKey) {
+  let key = baseKey;
+  let suffix = 2;
+  while (window.ASSETDESA_DATA && window.ASSETDESA_DATA[key]) {
+    key = `${baseKey}${suffix}`;
+    suffix += 1;
+  }
+  return key;
+}
+
+function readCustomAssets() {
+  try {
+    return JSON.parse(window.localStorage.getItem(CUSTOM_ASSET_KEY) || "{}");
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveCustomAssets(customAssets) {
+  window.localStorage.setItem(CUSTOM_ASSET_KEY, JSON.stringify(customAssets));
+}
+
+function hydrateCustomAssets() {
+  window.ASSETDESA_DATA = window.ASSETDESA_DATA || {};
+  window.ASSETDESA_LABELS = window.ASSETDESA_LABELS || {};
+  window.ASSETDESA_FILES = window.ASSETDESA_FILES || {};
+
+  const customAssets = readCustomAssets();
+  Object.entries(customAssets).forEach(([key, asset]) => {
+    if (!asset || !asset.src) {
+      return;
+    }
+
+    window.ASSETDESA_DATA[key] = asset.src;
+    window.ASSETDESA_LABELS[key] = asset.label || key;
+    window.ASSETDESA_FILES[key] = asset.fileName || `${key}.png`;
+  });
+}
+
+function getEditorAssets() {
+  const labels = window.ASSETDESA_LABELS || {};
+  return Object.keys(window.ASSETDESA_DATA || {})
+    .map((key) => [key, labels[key] || key])
+    .sort((a, b) => a[1].localeCompare(b[1]));
 }
 
 class VillageEditorScene extends Phaser.Scene {
@@ -369,26 +399,94 @@ function refreshExportText() {
 
 function buildPalette() {
   const palette = byId("assetPalette");
-  EDITOR_ASSETS.forEach(([key, label]) => {
-    if (!window.ASSETDESA_DATA || !window.ASSETDESA_DATA[key]) {
-      return;
+  palette.innerHTML = "";
+  getEditorAssets().forEach(([key, label]) => {
+    addPaletteItem(key, label);
+  });
+}
+
+function addPaletteItem(key, label) {
+  if (!window.ASSETDESA_DATA || !window.ASSETDESA_DATA[key]) {
+    return;
+  }
+
+  const palette = byId("assetPalette");
+  const button = document.createElement("button");
+  button.className = "asset-item";
+  button.draggable = true;
+  button.dataset.key = key;
+  button.innerHTML = `<img src="${window.ASSETDESA_DATA[key]}" alt=""><span>${label}</span>`;
+  button.addEventListener("dragstart", (event) => {
+    event.dataTransfer.setData("text/plain", key);
+  });
+  button.addEventListener("click", () => {
+    if (editorScene) {
+      editorScene.selectedKey = key;
+    }
+  });
+  palette.appendChild(button);
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function addTextureFromDataUrl(key, src) {
+  if (!editorScene || editorScene.textures.exists(key)) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      editorScene.textures.addImage(key, image);
+      resolve();
+    };
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+async function importAssetFiles(files) {
+  if (!files || files.length === 0) {
+    return;
+  }
+
+  const customAssets = readCustomAssets();
+  const importedKeys = [];
+
+  for (const file of files) {
+    if (!file.type.startsWith("image/")) {
+      continue;
     }
 
-    const button = document.createElement("button");
-    button.className = "asset-item";
-    button.draggable = true;
-    button.dataset.key = key;
-    button.innerHTML = `<img src="${window.ASSETDESA_DATA[key]}" alt=""><span>${label}</span>`;
-    button.addEventListener("dragstart", (event) => {
-      event.dataTransfer.setData("text/plain", key);
-    });
-    button.addEventListener("click", () => {
-      if (editorScene) {
-        editorScene.selectedKey = key;
-      }
-    });
-    palette.appendChild(button);
-  });
+    const key = createUniqueAssetKey(keyFromFileName(file.name));
+    const src = await readFileAsDataUrl(file);
+    const label = file.name.replace(/\.[^.]+$/, "");
+    const asset = { src, label, fileName: file.name, importedAt: Date.now() };
+    customAssets[key] = asset;
+    window.ASSETDESA_DATA[key] = src;
+    window.ASSETDESA_LABELS[key] = label;
+    window.ASSETDESA_FILES[key] = file.name;
+    await addTextureFromDataUrl(key, src);
+    importedKeys.push(key);
+  }
+
+  try {
+    saveCustomAssets(customAssets);
+  } catch (error) {
+    alert("Asset berhasil masuk sementara, tapi gagal disimpan. File mungkin terlalu besar untuk localStorage.");
+  }
+
+  buildPalette();
+  if (importedKeys.length > 0 && editorScene) {
+    editorScene.selectedKey = importedKeys[0];
+  }
 }
 
 function bindDomControls() {
@@ -413,6 +511,13 @@ function bindDomControls() {
     alert("Layout tersimpan. Refresh index.html untuk melihat hasilnya di game.");
   });
 
+  byId("importAssetBtn").addEventListener("click", () => {
+    byId("assetFileInput").click();
+  });
+  byId("assetFileInput").addEventListener("change", async (event) => {
+    await importAssetFiles([...event.target.files]);
+    event.target.value = "";
+  });
   byId("exportBtn").addEventListener("click", refreshExportText);
   byId("importBtn").addEventListener("click", () => {
     const layout = JSON.parse(byId("layoutJson").value);
@@ -442,6 +547,7 @@ function bindDomControls() {
   });
 }
 
+hydrateCustomAssets();
 buildPalette();
 bindDomControls();
 

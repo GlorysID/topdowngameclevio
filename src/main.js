@@ -29,9 +29,22 @@ const OFFICE_BOTTOM = CENTER_Y + (OFFICE_HEIGHT / 2);
 const PLAYER_ASSET_PATH = "assets/images/kepaladesa1";
 const PLAYER_SCALE = 0.46;
 const VILLAGE_ASSET_PATH = "assets/assetdesa";
+const VILLAGE_CUSTOM_ASSET_KEY = "villageCustomAssets.v1";
 
 function getAssetUrl(path) {
   return new URL(path.split("/").map((part) => encodeURIComponent(part)).join("/"), window.location.href).href;
+}
+
+function getStoredVillageCustomAssets() {
+  if (!window.localStorage) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(window.localStorage.getItem(VILLAGE_CUSTOM_ASSET_KEY) || "{}");
+  } catch (error) {
+    return {};
+  }
 }
 
 function getPlayerAssetSource(key, fileName) {
@@ -87,7 +100,7 @@ class BaseScene extends Phaser.Scene {
   }
 
   loadVillageAssets() {
-    const assets = {
+    const fallbackAssets = {
       grassDay: "GRASS TILE - DAY.png",
       grassNight: "GRASS TILE - NIGHT.png",
       groundDay: "GROUND TILE - DAY.png",
@@ -132,10 +145,31 @@ class BaseScene extends Phaser.Scene {
       waterDetail3Night: "WATER DETAIL 3 - NIGHT.png"
     };
 
-    Object.entries(assets).forEach(([key, fileName]) => {
-      if (!this.textures.exists(key)) {
-        const embeddedAsset = window.ASSETDESA_DATA && window.ASSETDESA_DATA[key];
-        this.load.image(key, embeddedAsset || getAssetUrl(`${VILLAGE_ASSET_PATH}/${fileName}`));
+    const loadedKeys = new Set();
+    const customAssets = getStoredVillageCustomAssets();
+    const assetSources = { ...(window.ASSETDESA_DATA || {}) };
+
+    Object.entries(customAssets).forEach(([key, asset]) => {
+      if (asset && asset.src) {
+        assetSources[key] = asset.src;
+      }
+    });
+
+    const queueImage = (key, source) => {
+      if (!source || loadedKeys.has(key) || this.textures.exists(key)) {
+        return;
+      }
+      this.load.image(key, source);
+      loadedKeys.add(key);
+    };
+
+    Object.entries(assetSources).forEach(([key, source]) => {
+      queueImage(key, source);
+    });
+
+    Object.entries(fallbackAssets).forEach(([key, fileName]) => {
+      if (!assetSources[key]) {
+        queueImage(key, getAssetUrl(`${VILLAGE_ASSET_PATH}/${fileName}`));
       }
     });
   }
