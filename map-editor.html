@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Editor Layout Desa</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #111723;
+        color: #f4efe7;
+        font-family: Arial, sans-serif;
+      }
+
+      body {
+        display: grid;
+        grid-template-columns: 300px 1fr 320px;
+        grid-template-rows: 56px 1fr;
+      }
+
+      header {
+        grid-column: 1 / 4;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        background: #172016;
+        border-bottom: 1px solid #3a4a31;
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 1px solid #6b8057;
+        background: #d8e5bd;
+        color: #172016;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #f2ffd6;
+      }
+
+      #palette,
+      #inspector {
+        overflow: auto;
+        background: #151a1f;
+        border-right: 1px solid #2d3838;
+      }
+
+      #inspector {
+        border-right: 0;
+        border-left: 1px solid #2d3838;
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+      }
+
+      .asset-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .asset-item {
+        min-height: 92px;
+        border: 1px solid #334040;
+        background: #202a2a;
+        color: #efe9dc;
+        padding: 6px;
+        display: grid;
+        place-items: center;
+        gap: 4px;
+      }
+
+      .asset-item img {
+        max-width: 72px;
+        max-height: 54px;
+        image-rendering: pixelated;
+      }
+
+      .asset-item span {
+        font-size: 11px;
+        text-align: center;
+      }
+
+      #editor-canvas {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        background: #0f5d8f;
+      }
+
+      .field {
+        display: grid;
+        grid-template-columns: 90px 1fr;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 9px;
+      }
+
+      .field input,
+      .field select,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #3d4c4c;
+        background: #0e1215;
+        color: #ffffff;
+        padding: 7px;
+      }
+
+      textarea {
+        height: 180px;
+        resize: vertical;
+        font-family: Consolas, monospace;
+        font-size: 12px;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0;
+      }
+
+      .hint {
+        margin: 8px 0 0;
+        color: #b8c7b7;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      #selectedName {
+        color: #f6d27b;
+        font-weight: 700;
+        min-height: 22px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Editor Layout Desa</h1>
+      <button id="saveBtn">Save ke Game</button>
+      <button id="exportBtn">Export JSON</button>
+      <button id="importBtn">Import JSON</button>
+      <button id="resetBtn">Reset Preset</button>
+      <p class="hint">Drag asset dari kiri ke map. Klik asset di map untuk edit. Right-drag/Space+drag untuk geser kamera, scroll untuk zoom.</p>
+    </header>
+
+    <aside id="palette" class="panel">
+      <h2>Asset Desa</h2>
+      <div id="assetPalette" class="asset-grid"></div>
+    </aside>
+
+    <main id="editor-canvas"></main>
+
+    <aside id="inspector" class="panel">
+      <h2>Inspector</h2>
+      <div id="selectedName">Belum ada asset dipilih</div>
+      <div class="field"><label for="xInput">X</label><input id="xInput" type="number"></div>
+      <div class="field"><label for="yInput">Y</label><input id="yInput" type="number"></div>
+      <div class="field"><label for="scaleInput">Scale</label><input id="scaleInput" type="number" step="0.05" min="0.1"></div>
+      <div class="field"><label for="depthInput">Layer</label><input id="depthInput" type="number" step="1"></div>
+      <div class="field"><label for="rotationInput">Rotasi</label><input id="rotationInput" type="number" step="1"></div>
+      <div class="field"><label for="alphaInput">Alpha</label><input id="alphaInput" type="number" step="0.05" min="0" max="1"></div>
+      <div class="field"><label for="labelInput">Label</label><input id="labelInput" type="text" placeholder="opsional"></div>
+      <div class="field">
+        <label for="roleInput">Role</label>
+        <select id="roleInput">
+          <option value="">Dekorasi</option>
+          <option value="chiefHome">Rumah Kepala Desa</option>
+          <option value="officeExit">Arah Kantor Desa</option>
+        </select>
+      </div>
+      <div class="button-row">
+        <button id="duplicateBtn">Duplicate</button>
+        <button id="deleteBtn">Delete</button>
+        <button id="frontBtn">Layer +</button>
+        <button id="backBtn">Layer -</button>
+      </div>
+      <textarea id="layoutJson" spellcheck="false"></textarea>
+      <p class="hint">Klik <strong>Save ke Game</strong>, lalu buka atau refresh <code>index.html</code>. Game akan memakai layout terakhir yang tersimpan.</p>
+    </aside>
+
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+    <script src="src/assetdesa-data.js?v=assetdesa-embed"></script>
+    <script src="src/map-editor.js?v=map-editor-v2"></script>
+  </body>
+</html>
