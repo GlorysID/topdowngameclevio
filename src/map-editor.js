@@ -411,6 +411,7 @@ class GameLayoutEditorScene extends Phaser.Scene {
     this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.bindSceneInput();
     this.switchTarget(currentTargetId, true);
+    refreshAssetListFromServer();
   }
 
   switchTarget(targetId, initial = false) {
@@ -793,7 +794,7 @@ class GameLayoutEditorScene extends Phaser.Scene {
 
     this.input.on("drag", (pointer, gameObject, dragX, dragY) => {
       if (gameObject.barrierHandleData) {
-        this.resizeBarrierFromHandle(gameObject, dragX, dragY);
+        this.resizeOrScaleObjectFromHandle(gameObject, dragX, dragY);
         return;
       }
 
@@ -890,6 +891,13 @@ class GameLayoutEditorScene extends Phaser.Scene {
   }
 
   readStoredLayout(targetId = this.targetId) {
+    if (window.SAVED_GAME_LAYOUTS && window.SAVED_GAME_LAYOUTS[targetId]) {
+      const layout = window.SAVED_GAME_LAYOUTS[targetId];
+      if (layout && Array.isArray(layout.objects) && layout.objects.length > 0) {
+        return normalizeLayout(layout, targetId);
+      }
+    }
+
     try {
       const raw = window.localStorage.getItem(getStorageKey(targetId))
         || (targetId === "village" ? window.localStorage.getItem(LEGACY_VILLAGE_STORAGE_KEY) : null);
@@ -1070,9 +1078,9 @@ class GameLayoutEditorScene extends Phaser.Scene {
     this.selectionBox.setSize(width, height);
   }
 
-  showResizeHandles(barrier) {
+  showResizeHandles(target) {
     this.clearResizeHandles();
-    if (!barrier || !barrier.editorData || barrier.editorData.type !== BARRIER_TYPE) {
+    if (!target || !target.editorData) {
       return;
     }
 
@@ -1081,7 +1089,7 @@ class GameLayoutEditorScene extends Phaser.Scene {
         .setStrokeStyle(2, 0x1f1600, 1)
         .setDepth(10000)
         .setInteractive({ draggable: true, useHandCursor: true });
-      handle.barrierHandleData = { barrier, corner };
+      handle.barrierHandleData = { target, corner };
       handle.on("pointerdown", (pointer) => {
         pointer.event.stopPropagation();
       });
@@ -1089,22 +1097,24 @@ class GameLayoutEditorScene extends Phaser.Scene {
       this.resizeHandles.push(handle);
     });
 
-    this.updateResizeHandles(barrier);
+    this.updateResizeHandles(target);
   }
 
   updateResizeHandles(target = selectedSprite) {
-    if (!target || !target.editorData || target.editorData.type !== BARRIER_TYPE || this.resizeHandles.length === 0) {
+    if (!target || !target.editorData || this.resizeHandles.length === 0) {
       return;
     }
 
     const data = target.editorData;
-    const halfWidth = data.width / 2;
-    const halfHeight = data.height / 2;
+    const isBarrier = data.type === BARRIER_TYPE;
+    const halfWidth = isBarrier ? (data.width / 2) : (Math.abs(target.displayWidth) / 2);
+    const halfHeight = isBarrier ? (data.height / 2) : (Math.abs(target.displayHeight) / 2);
+
     const positions = {
-      nw: [data.x - halfWidth, data.y - halfHeight],
-      ne: [data.x + halfWidth, data.y - halfHeight],
-      sw: [data.x - halfWidth, data.y + halfHeight],
-      se: [data.x + halfWidth, data.y + halfHeight]
+      nw: [target.x - halfWidth, target.y - halfHeight],
+      ne: [target.x + halfWidth, target.y - halfHeight],
+      sw: [target.x - halfWidth, target.y + halfHeight],
+      se: [target.x + halfWidth, target.y + halfHeight]
     };
 
     this.resizeHandles.forEach((handle) => {
@@ -1113,48 +1123,82 @@ class GameLayoutEditorScene extends Phaser.Scene {
     });
   }
 
-  resizeBarrierFromHandle(handle, dragX, dragY) {
-    const { barrier, corner } = handle.barrierHandleData || {};
-    if (!barrier || !barrier.editorData) {
+  resizeOrScaleObjectFromHandle(handle, dragX, dragY) {
+    const { target, corner } = handle.barrierHandleData || {};
+    if (!target || !target.editorData) {
       return;
     }
 
-    const data = barrier.editorData;
-    let left = data.x - (data.width / 2);
-    let right = data.x + (data.width / 2);
-    let top = data.y - (data.height / 2);
-    let bottom = data.y + (data.height / 2);
+    const data = target.editorData;
+    const isBarrier = data.type === BARRIER_TYPE;
 
-    if (corner.includes("w")) {
-      left = Math.min(dragX, right - BARRIER_MIN_SIZE);
-    }
-    if (corner.includes("e")) {
-      right = Math.max(dragX, left + BARRIER_MIN_SIZE);
-    }
-    if (corner.includes("n")) {
-      top = Math.min(dragY, bottom - BARRIER_MIN_SIZE);
-    }
-    if (corner.includes("s")) {
-      bottom = Math.max(dragY, top + BARRIER_MIN_SIZE);
+    if (isBarrier) {
+      let left = data.x - (data.width / 2);
+      let right = data.x + (data.width / 2);
+      let top = data.y - (data.height / 2);
+      let bottom = data.y + (data.height / 2);
+
+      if (corner.includes("w")) left = Math.min(dragX, right - BARRIER_MIN_SIZE);
+      if (corner.includes("e")) right = Math.max(dragX, left + BARRIER_MIN_SIZE);
+      if (corner.includes("n")) top = Math.min(dragY, bottom - BARRIER_MIN_SIZE);
+      if (corner.includes("s")) bottom = Math.max(dragY, top + BARRIER_MIN_SIZE);
+
+      data.width = Math.round(right - left);
+      data.height = Math.round(bottom - top);
+      data.x = Math.round(left + (data.width / 2));
+      data.y = Math.round(top + (data.height / 2));
+
+      target.setPosition(data.x, data.y);
+      target.setSize(data.width, data.height);
+      target.input.hitArea.setTo(-data.width / 2, -data.height / 2, data.width, data.height);
+    } else {
+      // Scaling for Sprites
+      let newHalfWidth = Math.abs(dragX - target.x);
+      let newHalfHeight = Math.abs(dragY - target.y);
+
+      const originalWidth = target.width;
+      const originalHeight = target.height;
+
+      if (originalWidth > 0 && originalHeight > 0) {
+        const scaleX = newHalfWidth / (originalWidth / 2);
+        const scaleY = newHalfHeight / (originalHeight / 2);
+        // Uniform scaling
+        data.scale = Math.max(0.05, Number(((scaleX + scaleY) / 2).toFixed(3)));
+        target.setScale(data.scale);
+      }
     }
 
-    data.width = Math.round(right - left);
-    data.height = Math.round(bottom - top);
-    data.x = Math.round(left + (data.width / 2));
-    data.y = Math.round(top + (data.height / 2));
-
-    barrier.setPosition(data.x, data.y);
-    barrier.setSize(data.width, data.height);
-    barrier.input.hitArea.setTo(-data.width / 2, -data.height / 2, data.width, data.height);
-    this.syncObjectLabel(barrier);
-    this.updateResizeHandles(barrier);
-    updateInspector(barrier);
+    this.syncObjectLabel(target);
+    this.updateResizeHandles(target);
+    updateInspector(target);
     refreshExportText();
   }
 
-  addObjectAtScreen(key, clientX, clientY) {
+  async addObjectAtScreen(key, clientX, clientY) {
     const rect = byId("editor-canvas").getBoundingClientRect();
     const point = this.cameras.main.getWorldPoint(clientX - rect.left, clientY - rect.top);
+
+    if (!this.textures.exists(key)) {
+      const src = window.ASSETDESA_DATA && window.ASSETDESA_DATA[key];
+      if (!src) {
+        setEditorStatus(`Gagal: Asset dengan key "${key}" tidak ditemukan di manifest.`);
+        return;
+      }
+
+      setEditorStatus(`Memuat asset "${key}"...`);
+      await new Promise((resolve) => {
+        this.load.image(key, src);
+        this.load.once(`filecomplete-image-${key}`, resolve);
+        this.load.once(`loaderror-image-${key}`, resolve);
+        this.load.start();
+      });
+    }
+
+    if (!this.textures.exists(key)) {
+      setEditorStatus(`Gagal memuat file gambar untuk "${key}". Cek apakah file ada di folder assets/assetdesa.`);
+      return;
+    }
+
     this.recordUndoPoint();
     const sprite = this.createObject({
       key,
@@ -1167,6 +1211,7 @@ class GameLayoutEditorScene extends Phaser.Scene {
     if (sprite) {
       selectSprite(sprite);
       refreshExportText();
+      setEditorStatus(`Asset "${key}" berhasil ditambahkan.`);
     }
   }
 
@@ -1468,7 +1513,7 @@ function selectSprites(sprites, primary = null) {
 
   selectedSprites.forEach(applySelectionStyle);
 
-  if (selectedSprites.length === 1 && selectedSprite && selectedSprite.editorData.type === BARRIER_TYPE && editorScene) {
+  if (selectedSprites.length === 1 && selectedSprite && editorScene) {
     editorScene.showResizeHandles(selectedSprite);
   }
 
@@ -1609,7 +1654,7 @@ function buildLayoutDropTargets() {
     return;
   }
 
-    container.innerHTML = "";
+  container.innerHTML = "";
   Object.entries(EDITOR_TARGETS).forEach(([targetId, target]) => {
     const dropTarget = document.createElement("div");
     dropTarget.className = "layout-drop-target";
@@ -1830,11 +1875,51 @@ async function importAssetFiles(files) {
   }
 }
 
-function saveCurrentLayout() {
+async function syncWithServer() {
+  if (!editorScene) return;
+
+  const allLayouts = {};
+  for (const id of Object.keys(EDITOR_TARGETS)) {
+    if (id === currentTargetId) {
+      allLayouts[id] = editorScene.exportLayout();
+    } else {
+      const stored = editorScene.readStoredLayout(id) || getDefaultLayout(id);
+      allLayouts[id] = stored;
+    }
+  }
+
+  const body = `window.GENERATED_GAME_LAYOUTS = ${JSON.stringify(allLayouts, null, 2)};\nwindow.SAVED_GAME_LAYOUTS = window.GENERATED_GAME_LAYOUTS;`;
+
+  try {
+    const response = await fetch("/__save-layouts", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: body
+    });
+    const data = await response.json();
+    if (data.ok) {
+      setEditorStatus("Layout berhasil disimpan ke file project! Sekarang perubahan terbawa saat folder dipindah.", true);
+      return true;
+    }
+  } catch (error) {
+    console.error("Gagal save ke server:", error);
+    setEditorStatus("Gagal simpan ke file. Pastikan editor dibuka lewat buka-map-editor.bat.", true);
+    return false;
+  }
+  return false;
+}
+
+async function saveCurrentLayout() {
   const layout = editorScene.exportLayout();
   writeStoredLayout(currentTargetId, layout);
   refreshExportText();
-  alert(`Layout ${getTarget().label} tersimpan. Refresh index.html untuk melihat hasilnya di game.`);
+
+  const serverSaved = await syncWithServer();
+  if (!serverSaved) {
+    alert(`Layout ${getTarget().label} tersimpan di browser, tapi GAGAL simpan ke file project. Pastikan server Python jalan.`);
+  } else {
+    setEditorStatus(`Layout ${getTarget().label} tersimpan ke browser dan file project.`, true);
+  }
 }
 
 function isTypingInForm(event) {
@@ -2001,6 +2086,47 @@ function bindDomControls() {
       setEditorStatus("Selection dibersihkan.");
     }
   });
+}
+
+async function refreshAssetListFromServer() {
+  try {
+    const response = await fetch("/__asset-list");
+    const data = await response.json();
+    if (data.ok && Array.isArray(data.assets)) {
+      window.ASSETDESA_DATA = window.ASSETDESA_DATA || {};
+      window.ASSETDESA_LABELS = window.ASSETDESA_LABELS || {};
+      window.ASSETDESA_FILES = window.ASSETDESA_FILES || {};
+
+      data.assets.forEach((asset) => {
+        window.ASSETDESA_DATA[asset.key] = asset.src;
+        window.ASSETDESA_LABELS[asset.key] = asset.label;
+        window.ASSETDESA_FILES[asset.key] = asset.fileName;
+      });
+
+      if (editorScene) {
+        let needsLoad = false;
+        data.assets.forEach((asset) => {
+          if (!editorScene.textures.exists(asset.key)) {
+            editorScene.load.image(asset.key, asset.src);
+            needsLoad = true;
+          }
+        });
+
+        if (needsLoad) {
+          editorScene.load.once("complete", () => {
+            buildPalette();
+          });
+          editorScene.load.start();
+        } else {
+          buildPalette();
+        }
+      } else {
+        buildPalette();
+      }
+    }
+  } catch (error) {
+    console.log("Gagal mengambil list asset dari server, menggunakan data statis.");
+  }
 }
 
 hydrateCustomAssets();

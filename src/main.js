@@ -16,6 +16,10 @@ var gameState = {
 
 window.gameState = gameState;
 
+// Layout data is loaded from src/generated-layouts.js (managed by buka-map-editor.bat).
+// window.GENERATED_GAME_LAYOUTS and window.SAVED_GAME_LAYOUTS are set there.
+
+
 const GAME_WIDTH = window.innerWidth || 1024;
 const GAME_HEIGHT = window.innerHeight || 768;
 const CENTER_X = GAME_WIDTH / 2;
@@ -51,6 +55,13 @@ function getStoredVillageCustomAssets() {
 }
 
 function getStoredEditorLayout(layoutId) {
+  if (window.GENERATED_GAME_LAYOUTS && window.GENERATED_GAME_LAYOUTS[layoutId]) {
+    const layout = window.GENERATED_GAME_LAYOUTS[layoutId];
+    if (layout && Array.isArray(layout.objects) && layout.objects.length > 0) {
+      return layout;
+    }
+  }
+
   if (!window.localStorage) {
     return null;
   }
