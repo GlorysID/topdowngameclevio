@@ -41,6 +41,7 @@ window.ASSETDESA_DATA = {
   "house2Night": "assets/assetdesa/HOUSE%202%20-%20NIGHT.png",
   "pitDay": "assets/assetdesa/PIT%20-%20DAY.png",
   "pitNight": "assets/assetdesa/PIT%20-%20NIGHT.png",
+  "stairsDayPhotoroom": "assets/assetdesa/STAIRS%20-%20DAY-Photoroom.png",
   "stairsDay": "assets/assetdesa/STAIRS%20-%20DAY.png",
   "stairsNight": "assets/assetdesa/STAIRS%20-%20NIGHT.png",
   "terrain1Day": "assets/assetdesa/TERRAIN%20SET%201%20-%20DAY.png",
@@ -57,8 +58,10 @@ window.ASSETDESA_DATA = {
   "terrain4CurveNight": "assets/assetdesa/TERRAIN%20SET%204%20CURVES%20-%20NIGHT.png",
   "terrain5Day": "assets/assetdesa/TERRAIN%20SET%205%20-%20DAY.png",
   "terrain5Night": "assets/assetdesa/TERRAIN%20SET%205%20-%20NIGHT.png",
+  "terrain3DayRemovebgPreview": "assets/assetdesa/TERRAIN_SET_3_-_DAY-removebg-preview.png",
   "terrainbawah": "assets/assetdesa/terrainbawah.png",
   "terrainsamping": "assets/assetdesa/terrainsamping.png",
+  "terrainsampingkiri": "assets/assetdesa/terrainsampingkiri.png",
   "tree1Day": "assets/assetdesa/TREE%201%20-%20DAY.png",
   "tree1Night": "assets/assetdesa/TREE%201%20-%20NIGHT.png",
   "tree2Day": "assets/assetdesa/TREE%202%20-%20DAY.png",
@@ -76,8 +79,7 @@ window.ASSETDESA_DATA = {
   "waterDetail5Day": "assets/assetdesa/WATER%20DETAIL%205%20-%20DAY.png",
   "waterDetail5Night": "assets/assetdesa/WATER%20DETAIL%205%20-%20NIGHT.png",
   "waterDay": "assets/assetdesa/WATER%20TILE%20-%20DAY.png",
-  "waterNight": "assets/assetdesa/WATER%20TILE%20-%20NIGHT.png",
-  "whatsappImage20251118At00125214cf5127": "assets/assetdesa/WhatsApp%20Image%202025-11-18%20at%2000.12.52_14cf5127.jpg"
+  "waterNight": "assets/assetdesa/WATER%20TILE%20-%20NIGHT.png"
 };
 window.ASSETDESA_LABELS = {
   "thankYou": "(THANK YOU)",
@@ -121,6 +123,7 @@ window.ASSETDESA_LABELS = {
   "house2Night": "HOUSE 2 - NIGHT",
   "pitDay": "PIT - DAY",
   "pitNight": "PIT - NIGHT",
+  "stairsDayPhotoroom": "STAIRS - DAY-Photoroom",
   "stairsDay": "STAIRS - DAY",
   "stairsNight": "STAIRS - NIGHT",
   "terrain1Day": "TERRAIN SET 1 - DAY",
@@ -137,8 +140,10 @@ window.ASSETDESA_LABELS = {
   "terrain4CurveNight": "TERRAIN SET 4 CURVES - NIGHT",
   "terrain5Day": "TERRAIN SET 5 - DAY",
   "terrain5Night": "TERRAIN SET 5 - NIGHT",
+  "terrain3DayRemovebgPreview": "TERRAIN_SET_3_-_DAY-removebg-preview",
   "terrainbawah": "terrainbawah",
   "terrainsamping": "terrainsamping",
+  "terrainsampingkiri": "terrainsampingkiri",
   "tree1Day": "TREE 1 - DAY",
   "tree1Night": "TREE 1 - NIGHT",
   "tree2Day": "TREE 2 - DAY",
@@ -156,8 +161,7 @@ window.ASSETDESA_LABELS = {
   "waterDetail5Day": "WATER DETAIL 5 - DAY",
   "waterDetail5Night": "WATER DETAIL 5 - NIGHT",
   "waterDay": "WATER TILE - DAY",
-  "waterNight": "WATER TILE - NIGHT",
-  "whatsappImage20251118At00125214cf5127": "WhatsApp Image 2025-11-18 at 00.12.52_14cf5127"
+  "waterNight": "WATER TILE - NIGHT"
 };
 window.ASSETDESA_FILES = {
   "thankYou": "(THANK YOU).png",
@@ -201,6 +205,7 @@ window.ASSETDESA_FILES = {
   "house2Night": "HOUSE 2 - NIGHT.png",
   "pitDay": "PIT - DAY.png",
   "pitNight": "PIT - NIGHT.png",
+  "stairsDayPhotoroom": "STAIRS - DAY-Photoroom.png",
   "stairsDay": "STAIRS - DAY.png",
   "stairsNight": "STAIRS - NIGHT.png",
   "terrain1Day": "TERRAIN SET 1 - DAY.png",
@@ -217,8 +222,10 @@ window.ASSETDESA_FILES = {
   "terrain4CurveNight": "TERRAIN SET 4 CURVES - NIGHT.png",
   "terrain5Day": "TERRAIN SET 5 - DAY.png",
   "terrain5Night": "TERRAIN SET 5 - NIGHT.png",
+  "terrain3DayRemovebgPreview": "TERRAIN_SET_3_-_DAY-removebg-preview.png",
   "terrainbawah": "terrainbawah.png",
   "terrainsamping": "terrainsamping.png",
+  "terrainsampingkiri": "terrainsampingkiri.png",
   "tree1Day": "TREE 1 - DAY.png",
   "tree1Night": "TREE 1 - NIGHT.png",
   "tree2Day": "TREE 2 - DAY.png",
@@ -236,6 +243,5 @@ window.ASSETDESA_FILES = {
   "waterDetail5Day": "WATER DETAIL 5 - DAY.png",
   "waterDetail5Night": "WATER DETAIL 5 - NIGHT.png",
   "waterDay": "WATER TILE - DAY.png",
-  "waterNight": "WATER TILE - NIGHT.png",
-  "whatsappImage20251118At00125214cf5127": "WhatsApp Image 2025-11-18 at 00.12.52_14cf5127.jpg"
+  "waterNight": "WATER TILE - NIGHT.png"
 };
