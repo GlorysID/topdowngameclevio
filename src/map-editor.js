@@ -1591,7 +1591,9 @@ function applyInspector() {
   selectedSprite.setAlpha(data.alpha);
   editorScene.syncObjectLabel(selectedSprite);
   editorScene.updateResizeHandles(selectedSprite);
+  editorScene.sortByDepth();
   refreshExportText();
+  triggerAutoSave();
 }
 
 function refreshExportText() {

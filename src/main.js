@@ -3485,12 +3485,19 @@ class SceneDesa extends BaseScene {
   }
 
   renderVillageEditorLayout(layout) {
+    this.editorBarrierBodies = [];
     const objects = [...layout.objects].sort((a, b) => (a.depth || 0) - (b.depth || 0));
     objects.forEach((object) => {
+      if (object.type === "barrier" || object.role === "barrier") {
+        this.addEditorBarrierBlock(object);
+        return;
+      }
+
       this.addVillageAsset(object.key, object.x, object.y, object.scale || 1, object.depth || 10, {
         alpha: object.alpha === undefined ? 1 : object.alpha,
         rotation: object.rotation || 0,
-        flipX: Boolean(object.flipX)
+        flipX: Boolean(object.flipX),
+        tint: object.tint
       });
 
       if (object.label) {
