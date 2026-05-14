@@ -16,6 +16,22 @@ var gameState = {
 
 window.gameState = gameState;
 
+function resetGameState() {
+  gameState.integrity = 100;
+  gameState.wealth = 0;
+  gameState.personalWealth = 0;
+  gameState.totalCorrupted = 0;
+  gameState.sanity = 100;
+  gameState.act = 1;
+  gameState.leader = 1;
+  gameState.actTwoProjectAccepted = false;
+  gameState.actTwoOfficeLuxury = false;
+  gameState.actTwoLedgerDone = false;
+  gameState.sanityGlitched = false;
+  gameState.integrityGlitched = false;
+  gameState.actThreeStarted = false;
+}
+
 // Layout data is loaded from src/generated-layouts.js (managed by buka-map-editor.bat).
 // window.GENERATED_GAME_LAYOUTS and window.SAVED_GAME_LAYOUTS are set there.
 
@@ -33,6 +49,7 @@ const OFFICE_BOTTOM = CENTER_Y + (OFFICE_HEIGHT / 2);
 const PLAYER_ASSET_PATH = "assets/images/kepaladesa1";
 const PLAYER_SCALE = 0.46;
 const VILLAGE_ASSET_PATH = "assets/assetdesa";
+const MENU_BACKGROUND_PATH = "assets/menu/sirna-menu-background.png";
 const VILLAGE_CUSTOM_ASSET_KEY = "villageCustomAssets.v1";
 const EDITOR_LAYOUT_PREFIX = "gameLayout.";
 const LEGACY_VILLAGE_LAYOUT_KEY = "villageLayout.v1";
@@ -40,6 +57,10 @@ const DEFAULT_EDITOR_PLAYER_DEPTH = 20;
 
 function getAssetUrl(path) {
   return new URL(path.split("/").map((part) => encodeURIComponent(part)).join("/"), window.location.href).href;
+}
+
+function getMenuBackgroundSource() {
+  return window.SIRNA_MENU_BACKGROUND_DATA_URL || MENU_BACKGROUND_PATH;
 }
 
 function getStoredVillageCustomAssets() {
@@ -499,15 +520,30 @@ class BaseScene extends Phaser.Scene {
   }
 
   createStatusUi() {
-    this.statusText = this.add.text(16, 16, "", {
-      fontFamily: "Courier New, monospace",
-      fontSize: "18px",
+    this.statusPanel = this.add.rectangle(14, 14, 206, 88, 0x05080d, 0.78)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x8fb7d8, 0.38)
+      .setDepth(99)
+      .setScrollFactor(0);
+
+    this.statusText = this.add.text(28, 24, "", {
+      fontFamily: "'Nunito', 'Courier New', monospace",
+      fontSize: "17px",
       color: "#ffffff",
-      lineSpacing: 6
+      fontStyle: "bold",
+      lineSpacing: 7,
+      stroke: "#000000",
+      strokeThickness: 4,
+      shadow: {
+        offsetX: 1,
+        offsetY: 2,
+        color: "#000000",
+        blur: 2,
+        fill: true
+      }
     });
 
-    this.statusText.setDepth(100);
-    this.statusText.setScrollFactor(0);
+    this.statusText.setDepth(100).setScrollFactor(0);
     this.updateStatusUi();
   }
 
@@ -531,15 +567,817 @@ class BaseScene extends Phaser.Scene {
 
     if (gameState.integrityGlitched) {
       this.statusText.setColor(Date.now() % 420 < 210 ? "#ff2f3f" : "#ffe8e8");
+      if (this.statusPanel) {
+        this.statusPanel.setFillStyle(0x12050a, 0.84).setStrokeStyle(2, 0xff4f6d, 0.62);
+      }
     } else if (gameState.act === 3 && gameState.integrity <= 0) {
       this.statusText.setColor("#ff3434");
+      if (this.statusPanel) {
+        this.statusPanel.setFillStyle(0x12050a, 0.84).setStrokeStyle(2, 0xff4f6d, 0.62);
+      }
     } else {
-      this.statusText.setColor("#ffffff");
+      this.statusText.setColor("#f8fbff");
+      if (this.statusPanel) {
+        this.statusPanel.setFillStyle(0x05080d, 0.78).setStrokeStyle(2, 0x8fb7d8, 0.38);
+      }
     }
   }
 
   update() {
     this.updateStatusUi();
+  }
+}
+
+class SceneMainMenu extends BaseScene {
+  constructor() {
+    super("SceneMainMenu");
+    this.starting = false;
+    this.sparklePixels = [];
+    this.enterKey = null;
+    this.spaceKey = null;
+    this.startButton = null;
+    this.startButtonGroup = null;
+  }
+
+  create() {
+    this.starting = false;
+    this.sparklePixels = [];
+    resetCameraView(this.cameras.main);
+    this.cameras.main.setBackgroundColor("#101b2a");
+
+    this.createClassicMenuBackground();
+    this.createClassicMenuHero();
+    this.createClassicMenuActions();
+    this.createMenuKeyboard();
+  }
+
+  preload() {
+    super.preload();
+
+    if (!this.textures.exists("sirnaMenuBackground")) {
+      this.load.image("sirnaMenuBackground", getMenuBackgroundSource());
+    }
+  }
+
+  isCompactMenu() {
+    return GAME_WIDTH < 720 || GAME_HEIGHT < 560;
+  }
+
+  addPixel(x, y, width, height, color, alpha = 1, depth = 1) {
+    return this.add.rectangle(
+      Math.round(x),
+      Math.round(y),
+      Math.max(1, Math.round(width)),
+      Math.max(1, Math.round(height)),
+      color,
+      alpha
+    ).setDepth(depth);
+  }
+
+  createMenuBackground() {
+    const compact = this.isCompactMenu();
+    const horizonY = compact ? GAME_HEIGHT * 0.47 : GAME_HEIGHT * 0.5;
+    const bands = [
+      [0, 0.16, 0x050a12],
+      [0.16, 0.34, 0x10203a],
+      [0.34, 0.47, 0x2a4658],
+      [0.47, 0.56, 0xa46235]
+    ];
+
+    bands.forEach(([from, to, color], index) => {
+      this.addPixel(CENTER_X, GAME_HEIGHT * ((from + to) / 2), GAME_WIDTH, GAME_HEIGHT * (to - from), color, 1, index);
+    });
+
+    this.createStarField();
+    this.createPixelClouds();
+    this.createPixelSun(horizonY);
+    this.createMountains(horizonY);
+    this.createFieldLayer(horizonY);
+    this.createMenuRoad(horizonY);
+    this.createSparkles();
+    this.createVignette();
+  }
+
+  createStarField() {
+    const count = this.isCompactMenu() ? 28 : 44;
+
+    for (let index = 0; index < count; index += 1) {
+      const size = index % 6 === 0 ? 4 : 2;
+      const star = this.addPixel(
+        Phaser.Math.Between(18, Math.max(20, GAME_WIDTH - 18)),
+        Phaser.Math.Between(24, Math.max(28, Math.floor(GAME_HEIGHT * 0.38))),
+        size,
+        size,
+        index % 3 === 0 ? 0xffd36a : 0x9ed6ff,
+        Phaser.Math.FloatBetween(0.34, 0.82),
+        6
+      );
+
+      this.tweens.add({
+        targets: star,
+        alpha: Phaser.Math.FloatBetween(0.1, 0.42),
+        duration: Phaser.Math.Between(800, 1600),
+        delay: Phaser.Math.Between(0, 900),
+        ease: "Stepped",
+        yoyo: true,
+        repeat: -1
+      });
+    }
+  }
+
+  createPixelClouds() {
+    const compact = this.isCompactMenu();
+    const cloudData = compact
+      ? [[0.18, 0.31, 0.72], [0.82, 0.28, 0.62]]
+      : [[0.16, 0.29, 0.9], [0.5, 0.25, 0.78], [0.84, 0.32, 0.82]];
+
+    cloudData.forEach(([xRatio, yRatio, scale], index) => {
+      const cloudBlocks = [];
+      const x = GAME_WIDTH * xRatio;
+      const y = GAME_HEIGHT * yRatio;
+      const blocks = [
+        [-42, 0, 42, 12],
+        [-18, -10, 54, 18],
+        [26, -2, 50, 14],
+        [62, 6, 34, 10]
+      ];
+
+      blocks.forEach(([offsetX, offsetY, width, height]) => {
+        cloudBlocks.push(this.addPixel(x + (offsetX * scale), y + (offsetY * scale), width * scale, height * scale, 0x9eb9c5, 0.34, 7));
+      });
+
+      this.tweens.add({
+        targets: cloudBlocks,
+        x: `+=${index % 2 === 0 ? 14 : -14}`,
+        duration: 3400 + (index * 420),
+        ease: "Stepped",
+        yoyo: true,
+        repeat: -1
+      });
+    });
+  }
+
+  createPixelSun(horizonY) {
+    const compact = this.isCompactMenu();
+    const sunX = CENTER_X + (compact ? 108 : 180);
+    const sunY = horizonY - (compact ? 70 : 90);
+    const size = compact ? 12 : 16;
+    const rows = [2, 4, 6, 8, 8, 6, 4, 2];
+
+    rows.forEach((count, row) => {
+      for (let col = 0; col < count; col += 1) {
+        this.addPixel(
+          sunX + ((col - (count / 2)) * size) + (size / 2),
+          sunY + ((row - 3.5) * size),
+          size,
+          size,
+          row < 4 ? 0xffd36a : 0xe9793f,
+          0.9,
+          8
+        );
+      }
+    });
+
+    this.addPixel(CENTER_X, horizonY - 18, GAME_WIDTH, 8, 0xffd36a, 0.16, 8);
+    this.addPixel(CENTER_X, horizonY + 10, GAME_WIDTH, 10, 0x4f765d, 0.34, 8);
+  }
+
+  createMountains(horizonY) {
+    const compact = this.isCompactMenu();
+    const mountainData = [
+      [CENTER_X - GAME_WIDTH * 0.34, horizonY + 6, compact ? 220 : 360, compact ? 108 : 136, 0x17273a],
+      [CENTER_X + GAME_WIDTH * 0.05, horizonY + 14, compact ? 270 : 440, compact ? 126 : 164, 0x20384d],
+      [CENTER_X + GAME_WIDTH * 0.42, horizonY + 2, compact ? 220 : 340, compact ? 96 : 128, 0x102334]
+    ];
+
+    mountainData.forEach(([x, baseY, maxWidth, maxHeight, color], index) => {
+      const steps = compact ? 7 : 9;
+      const stepHeight = maxHeight / steps;
+
+      for (let step = 0; step < steps; step += 1) {
+        const width = maxWidth * (1 - (step / (steps + 1)));
+        const y = baseY - (step * stepHeight);
+        this.addPixel(x, y, width, stepHeight + 2, color, 0.98, 9 + index);
+      }
+    });
+  }
+
+  createFieldLayer(horizonY) {
+    const compact = this.isCompactMenu();
+    const fieldTop = horizonY + (compact ? 62 : 74);
+    const rows = compact ? 6 : 7;
+    const rowHeight = Math.max(34, (GAME_HEIGHT - fieldTop) / rows);
+
+    for (let row = 0; row < rows; row += 1) {
+      const y = fieldTop + (row * rowHeight) + (rowHeight / 2);
+      this.addPixel(CENTER_X, y, GAME_WIDTH, rowHeight + 1, row % 2 === 0 ? 0x1e4b2b : 0x2f6133, 1, 13);
+
+      const tileWidth = compact ? 44 : 64;
+      for (let colX = -tileWidth; colX < GAME_WIDTH + tileWidth; colX += tileWidth) {
+        const tint = (row + Math.floor(colX / tileWidth)) % 2 === 0 ? 0x3f7f44 : 0x27582f;
+        this.addPixel(colX + (tileWidth / 2), y, tileWidth - 3, 5, tint, 0.5, 14);
+      }
+    }
+  }
+
+  createMenuRoad(horizonY) {
+    const compact = this.isCompactMenu();
+    const roadTop = horizonY + (compact ? 88 : 104);
+    const roadBottom = GAME_HEIGHT + 36;
+    const steps = compact ? 9 : 10;
+    const stepHeight = (roadBottom - roadTop) / steps;
+    const maxWidth = Math.min(GAME_WIDTH * 0.78, compact ? 330 : 760);
+
+    for (let step = 0; step < steps; step += 1) {
+      const y = roadTop + (step * stepHeight) + (stepHeight / 2);
+      const width = 54 + ((maxWidth - 54) * ((step + 1) / steps));
+      this.addPixel(CENTER_X, y, width, stepHeight + 1, step % 2 === 0 ? 0x56341f : 0x6c4628, 0.96, 24);
+      this.addPixel(CENTER_X - (width / 2) + 6, y, 8, stepHeight + 1, 0x2b1b12, 0.72, 25);
+      this.addPixel(CENTER_X + (width / 2) - 6, y, 8, stepHeight + 1, 0x2b1b12, 0.72, 25);
+    }
+
+    for (let dot = 0; dot < 24; dot += 1) {
+      const progress = Phaser.Math.FloatBetween(0.15, 0.95);
+      const y = roadTop + ((roadBottom - roadTop) * progress);
+      const width = 54 + ((maxWidth - 54) * progress);
+      this.addPixel(CENTER_X + Phaser.Math.FloatBetween(-width * 0.34, width * 0.34), y, compact ? 4 : 5, compact ? 4 : 5, 0xb37b43, 0.44, 26);
+    }
+  }
+
+  createSparkles() {
+    const count = this.isCompactMenu() ? 22 : 36;
+
+    for (let index = 0; index < count; index += 1) {
+      const sparkle = this.addPixel(
+        Phaser.Math.Between(26, Math.max(28, GAME_WIDTH - 26)),
+        Phaser.Math.Between(Math.floor(GAME_HEIGHT * 0.48), Math.max(Math.floor(GAME_HEIGHT * 0.9), 120)),
+        Phaser.Math.Between(2, 4),
+        Phaser.Math.Between(2, 4),
+        index % 4 === 0 ? 0xff6f5e : 0xffe08a,
+        Phaser.Math.FloatBetween(0.18, 0.5),
+        40
+      );
+      sparkle.setBlendMode(Phaser.BlendModes.ADD);
+      this.sparklePixels.push(sparkle);
+
+      this.tweens.add({
+        targets: sparkle,
+        x: sparkle.x + Phaser.Math.Between(-18, 18),
+        y: sparkle.y + Phaser.Math.Between(-28, 28),
+        alpha: Phaser.Math.FloatBetween(0.55, 0.86),
+        duration: Phaser.Math.Between(1700, 3400),
+        delay: Phaser.Math.Between(0, 900),
+        ease: "Stepped",
+        yoyo: true,
+        repeat: -1
+      });
+    }
+  }
+
+  createVignette() {
+    this.addPixel(CENTER_X, CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x020710, 0.14, 48);
+    this.addPixel(CENTER_X, 32, GAME_WIDTH, 64, 0x020710, 0.54, 49);
+    this.addPixel(CENTER_X, GAME_HEIGHT - 26, GAME_WIDTH, 52, 0x020710, 0.4, 49);
+    this.addPixel(14, CENTER_Y, 28, GAME_HEIGHT, 0x020710, 0.32, 49);
+    this.addPixel(GAME_WIDTH - 14, CENTER_Y, 28, GAME_HEIGHT, 0x020710, 0.32, 49);
+  }
+
+  createVillagePoster() {
+    const compact = this.isCompactMenu();
+    const villageY = compact ? GAME_HEIGHT * 0.48 : GAME_HEIGHT * 0.52;
+    const scale = compact ? 0.76 : 1;
+
+    this.createPixelOffice(CENTER_X, villageY, scale);
+    this.createPixelHouse(CENTER_X - Math.min(GAME_WIDTH * 0.28, compact ? 128 : 240), villageY + (compact ? 40 : 52), scale * 0.82, 0xd99443, 0x263852);
+    this.createPixelHouse(CENTER_X + Math.min(GAME_WIDTH * 0.28, compact ? 128 : 240), villageY + (compact ? 46 : 60), scale * 0.82, 0xb85f46, 0x35512b);
+
+    const treePositions = compact
+      ? [[-168, 72], [166, 78], [-132, 126], [136, 132]]
+      : [[-360, 72], [-290, 138], [318, 88], [390, 150], [-170, 110], [178, 122]];
+    treePositions.forEach(([offsetX, offsetY], index) => {
+      this.createPixelTree(CENTER_X + offsetX, villageY + offsetY, scale * (index % 2 === 0 ? 0.94 : 0.8), 39);
+    });
+
+    this.createPixelNoticeBoard(CENTER_X, villageY + (compact ? 130 : 140), scale);
+    this.createPixelLedgerMarks(villageY + (compact ? 174 : 200));
+  }
+
+  createPixelOffice(x, y, scale) {
+    const depth = 36;
+    const width = 128 * scale;
+    const height = 74 * scale;
+
+    this.addPixel(x, y + (height * 0.34), width + (18 * scale), 10 * scale, 0x101820, 0.42, depth - 1);
+    this.addPixel(x, y, width, height, 0xc7a463, 1, depth);
+    this.addPixel(x, y + (height * 0.14), width - (18 * scale), height * 0.46, 0xe5c580, 1, depth + 1);
+    this.addPixel(x, y - (height * 0.54), width + (30 * scale), 20 * scale, 0x3f2631, 1, depth + 2);
+    this.addPixel(x, y - (height * 0.7), width + (12 * scale), 14 * scale, 0x6f3946, 1, depth + 3);
+    this.addPixel(x - (width * 0.2), y + (height * 0.28), 18 * scale, 30 * scale, 0x4c2f20, 1, depth + 3);
+    this.addPixel(x + (width * 0.2), y + (height * 0.2), 22 * scale, 18 * scale, 0x355166, 1, depth + 3);
+    this.addPixel(x, y - (height * 0.22), width * 0.72, 16 * scale, 0x142235, 1, depth + 4);
+
+    this.add.text(x, y - (height * 0.23), "KANTOR DESA", {
+      fontFamily: "Courier New, monospace",
+      fontSize: `${Math.max(10, Math.round(13 * scale))}px`,
+      color: "#ffe5a1",
+      align: "center"
+    }).setOrigin(0.5).setDepth(depth + 5);
+  }
+
+  createPixelHouse(x, y, scale, wallColor, roofColor) {
+    const depth = 34;
+    const width = 82 * scale;
+    const height = 56 * scale;
+
+    this.addPixel(x, y + (height * 0.4), width + (16 * scale), 8 * scale, 0x101820, 0.32, depth - 1);
+    this.addPixel(x, y, width, height, wallColor, 1, depth);
+    this.addPixel(x, y - (height * 0.58), width + (18 * scale), 18 * scale, roofColor, 1, depth + 1);
+    this.addPixel(x - (width * 0.24), y + (height * 0.2), 14 * scale, 24 * scale, 0x3a271d, 1, depth + 2);
+    this.addPixel(x + (width * 0.22), y + (height * 0.08), 18 * scale, 16 * scale, 0x95c7c8, 1, depth + 2);
+    this.addPixel(x + (width * 0.22), y + (height * 0.08), 4 * scale, 16 * scale, 0x24465a, 0.72, depth + 3);
+  }
+
+  createPixelTree(x, y, scale, depth) {
+    this.addPixel(x, y + (22 * scale), 10 * scale, 34 * scale, 0x5a3520, 1, depth);
+    this.addPixel(x, y - (8 * scale), 42 * scale, 24 * scale, 0x285f34, 1, depth + 1);
+    this.addPixel(x - (12 * scale), y - (24 * scale), 28 * scale, 20 * scale, 0x34753d, 1, depth + 2);
+    this.addPixel(x + (12 * scale), y - (24 * scale), 28 * scale, 20 * scale, 0x1e4f2f, 1, depth + 2);
+    this.addPixel(x, y - (38 * scale), 26 * scale, 18 * scale, 0x4c8b43, 1, depth + 3);
+  }
+
+  createPixelNoticeBoard(x, y, scale) {
+    const compact = this.isCompactMenu();
+    const width = Math.min(compact ? 292 : 430, GAME_WIDTH - 44);
+    const height = compact ? 42 : 50;
+
+    this.addPixel(x - (width * 0.43), y + (height * 0.58), 8 * scale, 34 * scale, 0x5c351f, 1, 50);
+    this.addPixel(x + (width * 0.43), y + (height * 0.58), 8 * scale, 34 * scale, 0x5c351f, 1, 50);
+    this.addPixel(x, y, width, height, 0x1a2a3a, 0.96, 51).setStrokeStyle(3, 0xd9a84d, 0.76);
+    this.addPixel(x, y - (height * 0.42), width - 16, 6, 0xf2c65f, 0.78, 52);
+    this.add.text(x, y + 2, "Janji besar. Ujian makin dekat.", {
+      fontFamily: "Courier New, monospace",
+      fontSize: compact ? "12px" : "16px",
+      color: "#f5e5b8",
+      align: "center",
+      wordWrap: { width: width - 28 }
+    }).setOrigin(0.5).setDepth(53);
+  }
+
+  createPixelLedgerMarks(y) {
+    const compact = this.isCompactMenu();
+    const cardWidth = compact ? 46 : 62;
+    const cardHeight = compact ? 58 : 78;
+    const offsetX = Math.min(compact ? 112 : 196, GAME_WIDTH * 0.27);
+
+    [
+      [-offsetX, -0.16, 0xd8c394],
+      [offsetX, 0.18, 0xbfb7a4]
+    ].forEach(([x, rotation, color], index) => {
+      const card = this.add.container(CENTER_X + x, y + (index === 0 ? 8 : -6)).setDepth(56);
+      const paper = this.add.rectangle(0, 0, cardWidth, cardHeight, color, 0.88).setStrokeStyle(2, 0x3a2615, 0.78);
+      const lineA = this.add.rectangle(0, -cardHeight * 0.18, cardWidth - 18, 4, 0x5c3721, 0.72);
+      const lineB = this.add.rectangle(-4, 0, cardWidth - 26, 4, 0x5c3721, 0.44);
+      const stamp = this.add.rectangle(cardWidth * 0.18, cardHeight * 0.22, cardWidth * 0.28, cardWidth * 0.28, index === 0 ? 0x8e2d22 : 0xd6a63c, 0.52);
+      card.add([paper, lineA, lineB, stamp]);
+      card.setRotation(rotation);
+
+      this.tweens.add({
+        targets: card,
+        y: card.y + (index === 0 ? -8 : 8),
+        duration: 1500 + (index * 240),
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1
+      });
+    });
+  }
+
+  createMenuHero() {
+    const compact = this.isCompactMenu();
+    const signY = compact ? Math.max(94, GAME_HEIGHT * 0.17) : Math.max(118, GAME_HEIGHT * 0.2);
+    const signWidth = Math.min(compact ? 350 : 720, GAME_WIDTH - 28);
+    const signHeight = compact ? 120 : 158;
+    const titleSize = compact ? "36px" : "68px";
+    const subtitleSize = compact ? "16px" : "24px";
+
+    const sign = this.add.container(CENTER_X, signY).setDepth(82);
+    const shadow = this.add.rectangle(8, 12, signWidth, signHeight, 0x020509, 0.7);
+    const back = this.add.rectangle(0, 0, signWidth, signHeight, 0x162235, 1).setStrokeStyle(5, 0x050a12, 1);
+    const inner = this.add.rectangle(0, 0, signWidth - 18, signHeight - 18, 0x263a4e, 1).setStrokeStyle(3, 0xf1be55, 0.9);
+    const stripe = this.add.rectangle(0, -signHeight * 0.34, signWidth - 34, 10, 0xffd36a, 0.92);
+    const bottomStripe = this.add.rectangle(0, signHeight * 0.33, signWidth - 42, 8, 0xe0643c, 0.86);
+    const leftPin = this.add.rectangle(-signWidth * 0.45, -signHeight * 0.34, 18, 18, 0xf2c65f, 1);
+    const rightPin = this.add.rectangle(signWidth * 0.45, -signHeight * 0.34, 18, 18, 0xf2c65f, 1);
+
+    const titleShadow = this.add.text(5, compact ? -8 : -14, "S.I.R.N.A", {
+      fontFamily: "Courier New, monospace",
+      fontSize: titleSize,
+      color: "#07101b",
+      align: "center"
+    }).setOrigin(0.5);
+
+    const title = this.add.text(0, compact ? -12 : -20, "S.I.R.N.A", {
+      fontFamily: "Courier New, monospace",
+      fontSize: titleSize,
+      color: "#ffe08a",
+      align: "center",
+      stroke: "#5a2c23",
+      strokeThickness: compact ? 4 : 6
+    }).setOrigin(0.5);
+
+    const subtitlePlate = this.add.rectangle(0, signHeight * 0.31, Math.min(signWidth - 52, compact ? 226 : 310), compact ? 32 : 40, 0x0c1725, 1)
+      .setStrokeStyle(2, 0xf1be55, 0.9);
+    const subtitle = this.add.text(0, signHeight * 0.31, "Bayang Korupsi", {
+      fontFamily: "Courier New, monospace",
+      fontSize: subtitleSize,
+      color: "#9fd4ff",
+      align: "center",
+      stroke: "#050a12",
+      strokeThickness: 2
+    }).setOrigin(0.5);
+
+    sign.add([shadow, back, inner, stripe, bottomStripe, leftPin, rightPin, titleShadow, title, subtitlePlate, subtitle]);
+
+    this.tweens.add({
+      targets: sign,
+      y: "-=4",
+      duration: 1300,
+      ease: "Stepped",
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  createMenuActions() {
+    const compact = this.isCompactMenu();
+    const panelY = compact ? Math.min(GAME_HEIGHT - 74, GAME_HEIGHT * 0.86) : Math.min(GAME_HEIGHT - 86, GAME_HEIGHT * 0.84);
+    const panelWidth = Math.min(compact ? 344 : 486, GAME_WIDTH - 34);
+    const panelHeight = compact ? 116 : 132;
+    const buttonWidth = panelWidth - (compact ? 36 : 58);
+    const buttonHeight = compact ? 56 : 62;
+    const buttonGroup = this.add.container(CENTER_X, panelY).setDepth(92);
+
+    const panelShadow = this.add.rectangle(8, 10, panelWidth, panelHeight, 0x020509, 0.62);
+    const panel = this.add.rectangle(0, 0, panelWidth, panelHeight, 0x101a29, 1)
+      .setStrokeStyle(4, 0x050a12, 1);
+    const panelBorder = this.add.rectangle(0, 0, panelWidth - 14, panelHeight - 14, 0x101a29, 0)
+      .setStrokeStyle(3, 0xf1be55, 0.88);
+    const panelTop = this.add.rectangle(0, -panelHeight / 2 + 10, panelWidth - 30, 8, 0xe0643c, 0.9);
+    const buttonGlow = this.add.rectangle(0, -12, buttonWidth + 18, buttonHeight + 14, 0xffd36a, 0.18);
+    const button = this.add.rectangle(0, -12, buttonWidth, buttonHeight, 0xffc657, 1)
+      .setStrokeStyle(4, 0x4f2b1d, 1)
+      .setInteractive({ useHandCursor: true });
+    const label = this.add.text(0, -12, "Mulai Permainan", {
+      fontFamily: "Courier New, monospace",
+      fontSize: compact ? "18px" : "21px",
+      color: "#1b1110",
+      align: "center"
+    }).setOrigin(0.5);
+    buttonGroup.add([panelShadow, panel, panelBorder, panelTop, buttonGlow, button, label]);
+    this.startButton = button;
+    this.startButtonGroup = buttonGroup;
+
+    button.on("pointerover", () => {
+      button.setFillStyle(0xffdf86);
+      buttonGlow.setAlpha(0.34);
+      label.setColor("#120b04");
+    });
+    button.on("pointerout", () => {
+      button.setFillStyle(0xffc657);
+      buttonGlow.setAlpha(0.16);
+      label.setColor("#1b1110");
+    });
+    button.on("pointerdown", () => this.startGame());
+
+    this.tweens.add({
+      targets: buttonGroup,
+      y: "-=3",
+      duration: 900,
+      ease: "Stepped",
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  createClassicMenuBackground() {
+    const compact = this.isCompactMenu();
+    this.add.rectangle(CENTER_X, CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x283d2d, 1).setDepth(0);
+
+    if (this.textures.exists("sirnaMenuBackground")) {
+      this.addClassicMenuBackgroundImage();
+    } else {
+      this.loadClassicMenuBackgroundFallback();
+    }
+
+    const leftShadeWidth = compact ? GAME_WIDTH : Math.min(470, GAME_WIDTH * 0.42);
+    this.add.rectangle(leftShadeWidth / 2, CENTER_Y, leftShadeWidth, GAME_HEIGHT, 0x0d170f, compact ? 0.28 : 0.48).setDepth(4);
+  }
+
+  addClassicMenuBackgroundImage() {
+    const source = this.textures.get("sirnaMenuBackground").getSourceImage();
+    const width = source.naturalWidth || source.width;
+    const height = source.naturalHeight || source.height;
+
+    if (!width || !height) {
+      return null;
+    }
+
+    const coverScale = Math.max(GAME_WIDTH / width, GAME_HEIGHT / height);
+    return this.add.image(CENTER_X, CENTER_Y, "sirnaMenuBackground")
+      .setOrigin(0.5)
+      .setScale(coverScale)
+      .setDepth(1);
+  }
+
+  loadClassicMenuBackgroundFallback() {
+    const image = new Image();
+    image.onload = () => {
+      if (!this.textures.exists("sirnaMenuBackground")) {
+        this.textures.addImage("sirnaMenuBackground", image);
+      }
+      this.addClassicMenuBackgroundImage();
+    };
+    image.src = getMenuBackgroundSource();
+  }
+
+  createRefinedMenuDetails(compact, horizonY) {
+    const depth = 36;
+    const paperColor = 0xd4c0a6;
+    const inkColor = 0x8c745c;
+    const markColor = 0x7d342c;
+    const details = compact
+      ? [
+        [CENTER_X - 132, horizonY + 160, 84, 112, -0.18],
+        [CENTER_X + 134, horizonY + 196, 78, 104, 0.15]
+      ]
+      : [
+        [CENTER_X - 470, horizonY + 170, 118, 150, -0.16],
+        [CENTER_X + 462, horizonY + 212, 104, 138, 0.13],
+        [CENTER_X - 260, GAME_HEIGHT - 116, 96, 128, 0.08]
+      ];
+
+    details.forEach(([x, y, width, height, rotation], index) => {
+      const card = this.add.container(x, y).setDepth(depth + index).setRotation(rotation);
+      const paper = this.add.rectangle(0, 0, width, height, paperColor, compact ? 0.045 : 0.055)
+        .setStrokeStyle(1, inkColor, 0.14);
+      const header = this.add.rectangle(0, -height * 0.34, width * 0.68, 2, inkColor, 0.18);
+      const lineA = this.add.rectangle(-width * 0.06, -height * 0.12, width * 0.7, 1, paperColor, 0.12);
+      const lineB = this.add.rectangle(-width * 0.12, height * 0.02, width * 0.56, 1, paperColor, 0.1);
+      const lineC = this.add.rectangle(-width * 0.04, height * 0.16, width * 0.66, 1, paperColor, 0.08);
+      const stamp = this.add.rectangle(width * 0.2, height * 0.25, width * 0.24, width * 0.24, markColor, 0.08);
+      card.add([paper, header, lineA, lineB, lineC, stamp]);
+
+      this.tweens.add({
+        targets: card,
+        y: card.y + (index % 2 === 0 ? -6 : 6),
+        duration: 3200 + (index * 360),
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1
+      });
+    });
+  }
+
+  createClassicMenuLight() {
+    const glow = this.add.circle(CENTER_X, Math.max(118, GAME_HEIGHT * 0.22), Math.max(GAME_WIDTH, GAME_HEIGHT) * 0.35, 0xb18b62, 0.07);
+    glow.setDepth(32);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+
+    this.tweens.add({
+      targets: glow,
+      alpha: 0.12,
+      scaleX: 1.04,
+      scaleY: 1.04,
+      duration: 3200,
+      ease: "Sine.easeInOut",
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  createClassicFireflies() {
+    const count = this.isCompactMenu() ? 9 : 16;
+
+    for (let index = 0; index < count; index += 1) {
+      const firefly = this.add.circle(
+        Phaser.Math.Between(26, Math.max(28, GAME_WIDTH - 26)),
+        Phaser.Math.Between(Math.floor(GAME_HEIGHT * 0.28), Math.max(Math.floor(GAME_HEIGHT * 0.88), 120)),
+        Phaser.Math.FloatBetween(1, 2),
+        0xc0a17a,
+        Phaser.Math.FloatBetween(0.08, 0.22)
+      );
+      firefly.setDepth(40);
+
+      this.tweens.add({
+        targets: firefly,
+        x: firefly.x + Phaser.Math.Between(-18, 18),
+        y: firefly.y + Phaser.Math.Between(-28, 28),
+        alpha: Phaser.Math.FloatBetween(0.16, 0.34),
+        duration: Phaser.Math.Between(1700, 3400),
+        delay: Phaser.Math.Between(0, 900),
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1
+      });
+    }
+  }
+
+  createArtisticTitle(titleY, compact) {
+    const titleX = compact ? CENTER_X : GAME_WIDTH * 0.64;
+    const group = this.add.container(titleX, titleY).setDepth(72);
+    const titleSize = compact ? "62px" : "104px";
+    const titleStyle = {
+      fontFamily: "'Chewy', 'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: titleSize,
+      color: "#c7ffd0",
+      align: "center",
+      stroke: "#19364a",
+      strokeThickness: compact ? 6 : 8
+    };
+
+    const titleShadow = this.add.text(0, compact ? 8 : 12, "S.I.R.N.A", {
+      ...titleStyle,
+      color: "#102538",
+      stroke: "#102538",
+      strokeThickness: 0
+    }).setOrigin(0.5).setAlpha(0.72);
+
+    const title = this.add.text(0, 0, "S.I.R.N.A", titleStyle).setOrigin(0.5);
+    title.setShadow(0, compact ? 4 : 6, "#16374d", compact ? 3 : 4, false, true);
+
+    const decoration = this.add.graphics();
+    const y = compact ? 2 : 6;
+    const inner = compact ? 192 : 322;
+    const outer = compact ? 276 : 458;
+    decoration.lineStyle(compact ? 4 : 6, 0x58f4d5, 0.9);
+    decoration.beginPath();
+    decoration.moveTo(-outer / 2, y - (compact ? 16 : 22));
+    decoration.lineTo(-inner / 2, y - (compact ? 6 : 10));
+    decoration.moveTo(-outer / 2, y);
+    decoration.lineTo(-inner / 2, y);
+    decoration.moveTo(-outer / 2, y + (compact ? 16 : 22));
+    decoration.lineTo(-inner / 2, y + (compact ? 6 : 10));
+    decoration.moveTo(inner / 2, y - (compact ? 6 : 10));
+    decoration.lineTo(outer / 2, y - (compact ? 16 : 22));
+    decoration.moveTo(inner / 2, y);
+    decoration.lineTo(outer / 2, y);
+    decoration.moveTo(inner / 2, y + (compact ? 6 : 10));
+    decoration.lineTo(outer / 2, y + (compact ? 16 : 22));
+    decoration.strokePath();
+    decoration.lineStyle(compact ? 2 : 3, 0xffffff, 0.78);
+    decoration.beginPath();
+    decoration.moveTo((-outer / 2) - (compact ? 22 : 34), y);
+    decoration.lineTo((-outer / 2) - (compact ? 8 : 14), y);
+    decoration.moveTo((outer / 2) + (compact ? 8 : 14), y);
+    decoration.lineTo((outer / 2) + (compact ? 22 : 34), y);
+    decoration.strokePath();
+
+    group.add([decoration, titleShadow, title]);
+
+    return group;
+  }
+
+  createClassicMenuHero() {
+    const compact = this.isCompactMenu();
+    const titleY = compact ? Math.max(110, GAME_HEIGHT * 0.17) : Math.max(210, GAME_HEIGHT * 0.34);
+    const titleX = compact ? CENTER_X : GAME_WIDTH * 0.64;
+    this.createArtisticTitle(titleY, compact);
+
+    const subtitle = this.add.text(titleX, titleY + (compact ? 58 : 88), "Cerita Desa", {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: compact ? "21px" : "31px",
+      color: "#f7ffe7",
+      align: "center",
+      fontStyle: "bold",
+      stroke: "#284237",
+      strokeThickness: compact ? 3 : 4
+    }).setOrigin(0.5).setDepth(72);
+
+    const tagline = this.add.text(titleX, titleY + (compact ? 88 : 128), "Pilih keputusan baik dan bantu warga desa.", {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: compact ? "13px" : "17px",
+      color: "#f3fff0",
+      align: "center",
+      stroke: "#1b2f28",
+      strokeThickness: compact ? 2 : 3,
+      wordWrap: { width: Math.min(compact ? GAME_WIDTH - 60 : 460, GAME_WIDTH - 42) },
+      lineSpacing: 4
+    }).setOrigin(0.5).setDepth(72);
+
+  }
+
+  createClassicMenuActions() {
+    const compact = this.isCompactMenu();
+    const menuX = compact ? CENTER_X : Math.min(235, GAME_WIDTH * 0.2);
+    const startY = compact ? Math.max(260, GAME_HEIGHT * 0.36) : Math.max(176, GAME_HEIGHT * 0.26);
+    const itemGap = compact ? 56 : 83;
+    const selectedWidth = Math.min(compact ? 292 : 330, GAME_WIDTH - 56);
+    const selectedHeight = compact ? 58 : 72;
+    const fontSize = compact ? "32px" : "48px";
+    const selectedFontSize = compact ? "34px" : "52px";
+    const menuItems = ["Mulai Bermain", "Kredit"];
+    const buttonGroup = this.add.container(menuX, startY).setDepth(90);
+    const selectedBg = this.add.graphics();
+
+    const drawSelectedBg = (hovered) => {
+      selectedBg.clear();
+      selectedBg.fillStyle(hovered ? 0x79b881 : 0x6aa271, hovered ? 0.94 : 0.88);
+      selectedBg.fillRoundedRect(-selectedWidth / 2, -selectedHeight / 2, selectedWidth, selectedHeight, 8);
+      selectedBg.lineStyle(2, 0xd8ffe0, hovered ? 0.62 : 0.36);
+      selectedBg.strokeRoundedRect(-selectedWidth / 2, -selectedHeight / 2, selectedWidth, selectedHeight, 8);
+    };
+    drawSelectedBg(false);
+
+    const selectedLabel = this.add.text(0, 0, menuItems[0], {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: selectedFontSize,
+      color: "#f8fff1",
+      align: "center"
+    }).setOrigin(0.5).setFontStyle("700");
+    selectedLabel.setShadow(2, 4, "#2d4f36", 4, false, true);
+
+    const button = this.add.zone(0, 0, selectedWidth, selectedHeight)
+      .setInteractive({ useHandCursor: true });
+
+    buttonGroup.add([selectedBg, selectedLabel, button]);
+    this.startButton = button;
+    this.startButtonGroup = buttonGroup;
+
+    button.on("pointerover", () => {
+      drawSelectedBg(true);
+      selectedLabel.setColor("#ffffff");
+      buttonGroup.setScale(1.03);
+    });
+    button.on("pointerout", () => {
+      drawSelectedBg(false);
+      selectedLabel.setColor("#f8fff1");
+      buttonGroup.setScale(1);
+    });
+    button.on("pointerdown", () => this.startGame());
+
+    menuItems.slice(1).forEach((label, index) => {
+      const itemText = this.add.text(menuX, startY + ((index + 1) * itemGap), label, {
+        fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+        fontSize,
+        color: "#f3fff1",
+        align: "center",
+        stroke: "#23352d",
+        strokeThickness: compact ? 3 : 4
+      }).setOrigin(0.5).setDepth(91).setFontStyle("600");
+      itemText.setShadow(2, 4, "#26382d", 4, false, true);
+    });
+
+    const footerSize = compact ? "20px" : "26px";
+    const exitY = Math.min(GAME_HEIGHT - (compact ? 34 : 48), startY + (itemGap * 2.1));
+    const exitText = this.add.text(menuX, exitY, "Keluar", {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: footerSize,
+      color: "#efffed",
+      align: "center",
+      stroke: "#26382d",
+      strokeThickness: compact ? 2 : 3
+    }).setOrigin(0.5).setDepth(91).setFontStyle("600").setInteractive({ useHandCursor: true });
+
+    exitText.on("pointerover", () => exitText.setColor("#ffffff"));
+    exitText.on("pointerout", () => exitText.setColor("#efffed"));
+    exitText.on("pointerdown", () => window.close());
+
+  }
+
+  createMenuKeyboard() {
+    if (!this.input.keyboard) {
+      return;
+    }
+
+    this.enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
+    this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+  }
+
+  startGame() {
+    if (this.starting) {
+      return;
+    }
+
+    this.starting = true;
+    resetGameState();
+
+    if (this.startButton) {
+      this.startButton.disableInteractive();
+    }
+
+    this.cameras.main.fadeOut(520, 4, 9, 18);
+    this.time.delayedCall(560, () => this.scene.start("SceneSiang"));
+  }
+
+  update() {
+    if (this.starting) {
+      return;
+    }
+
+    if ((this.enterKey && Phaser.Input.Keyboard.JustDown(this.enterKey)) ||
+      (this.spaceKey && Phaser.Input.Keyboard.JustDown(this.spaceKey))) {
+      this.startGame();
+    }
   }
 }
 
@@ -1136,6 +1974,10 @@ class SceneSiang extends BaseScene {
   startLedgerHackMiniGame() {
     this.ledgerHackActive = true;
     this.ledgerProgress = 0;
+    this.ledgerAudit = 0;
+    this.ledgerStreak = 0;
+    this.ledgerTimeLeft = 24;
+    this.ledgerTargetKey = null;
     this.ledgerCrackCount = 0;
     this.phase = "ledgerHack";
     this.inputLocked = true;
@@ -1148,6 +1990,13 @@ class SceneSiang extends BaseScene {
     this.createLedgerHackOverlay();
     this.startLedgerAudio();
     this.input.keyboard.on("keydown", this.handleLedgerKeyMash, this);
+    this.ledgerHackTimer = this.time.addEvent({
+      delay: 250,
+      loop: true,
+      callback: this.updateLedgerHackTimer,
+      callbackScope: this
+    });
+    this.setNextLedgerCipher();
   }
 
   createLedgerHackOverlay() {
@@ -1172,42 +2021,79 @@ class SceneSiang extends BaseScene {
     }).setOrigin(0.5);
     this.ledgerContainer.add(this.ledgerTitleText);
 
-    this.ledgerHintText = this.add.text(CENTER_X, 118, "Tekan tombol apa saja secepat mungkin", {
+    this.ledgerHintText = this.add.text(CENTER_X, 118, "Ketik cipher hijau. Hindari tombol jebakan merah.", {
       fontFamily: "Courier New, monospace",
       fontSize: "18px",
       color: "#dbffe9"
     }).setOrigin(0.5);
     this.ledgerContainer.add(this.ledgerHintText);
 
+    this.ledgerTargetPanel = this.add.rectangle(CENTER_X, CENTER_Y - 46, Math.min(640, GAME_WIDTH - 120), 126, 0x06140e, 0.94)
+      .setStrokeStyle(3, 0x7dffbd, 0.65);
+    this.ledgerCipherText = this.add.text(CENTER_X, CENTER_Y - 72, "", {
+      fontFamily: "Courier New, monospace",
+      fontSize: "22px",
+      color: "#dbffe9",
+      align: "center"
+    }).setOrigin(0.5);
+    this.ledgerTargetText = this.add.text(CENTER_X, CENTER_Y - 22, "", {
+      fontFamily: "'Fredoka', 'Courier New', monospace",
+      fontSize: "48px",
+      color: "#7dffbd",
+      stroke: "#00180c",
+      strokeThickness: 5
+    }).setOrigin(0.5);
+    this.ledgerDecoyText = this.add.text(CENTER_X, CENTER_Y + 28, "", {
+      fontFamily: "Courier New, monospace",
+      fontSize: "18px",
+      color: "#ff8f9e",
+      align: "center"
+    }).setOrigin(0.5);
+
     const barWidth = Math.min(760, GAME_WIDTH - 120);
     this.ledgerBarFrame = this.add.rectangle(CENTER_X, GAME_HEIGHT - 92, barWidth, 34, 0x06140e, 1)
       .setStrokeStyle(3, 0x7dffbd, 0.9);
     this.ledgerBarFill = this.add.rectangle(CENTER_X - (barWidth / 2) + 3, GAME_HEIGHT - 92, 1, 24, 0x31ff73, 1)
       .setOrigin(0, 0.5);
-    this.ledgerProgressText = this.add.text(CENTER_X, GAME_HEIGHT - 134, "Dana Masuk ke Kantong: 0%", {
+    this.ledgerProgressText = this.add.text(CENTER_X, GAME_HEIGHT - 134, "Transfer Gelap: 0%  |  Streak: 0", {
       fontFamily: "Courier New, monospace",
       fontSize: "20px",
       color: "#faffda"
     }).setOrigin(0.5);
 
-    this.ledgerContainer.add([this.ledgerBarFrame, this.ledgerBarFill, this.ledgerProgressText]);
+    this.ledgerAuditText = this.add.text(CENTER_X, GAME_HEIGHT - 50, "Jejak Audit: 0%  |  Waktu: 24.0", {
+      fontFamily: "Courier New, monospace",
+      fontSize: "16px",
+      color: "#ffb7b7"
+    }).setOrigin(0.5);
+
+    this.ledgerContainer.add([
+      this.ledgerTargetPanel,
+      this.ledgerCipherText,
+      this.ledgerTargetText,
+      this.ledgerDecoyText,
+      this.ledgerBarFrame,
+      this.ledgerBarFill,
+      this.ledgerProgressText,
+      this.ledgerAuditText
+    ]);
     this.ledgerBarWidth = barWidth - 6;
   }
 
   addLedgerCodeRows() {
     this.ledgerCodeRows = [];
-    const columns = Math.max(8, Math.floor(GAME_WIDTH / 150));
-    const rows = Math.max(8, Math.floor(GAME_HEIGHT / 64));
+    const columns = Math.max(5, Math.floor(GAME_WIDTH / 230));
+    const rows = Math.max(5, Math.floor(GAME_HEIGHT / 96));
 
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {
-        const text = this.add.text(column * 150 + 18, 150 + (row * 64), this.createLedgerCodeLine(), {
+        const text = this.add.text(column * 230 + 24, 150 + (row * 96), this.createLedgerCodeLine(), {
           fontFamily: "Courier New, monospace",
-          fontSize: "15px",
+          fontSize: "14px",
           color: row % 2 === 0 ? "#28ff83" : "#c8ff65",
-          alpha: 0.72
+          alpha: 0.38
         });
-        text.speed = Phaser.Math.Between(38, 96);
+        text.speed = Phaser.Math.Between(22, 54);
         this.ledgerContainer.add(text);
         this.ledgerCodeRows.push(text);
       }
@@ -1243,25 +2129,120 @@ class SceneSiang extends BaseScene {
     });
   }
 
+  setNextLedgerCipher() {
+    const keys = ["A", "S", "D", "F", "J", "K", "L", "W", "E", "R", "U", "I"];
+    this.ledgerTargetKey = Phaser.Utils.Array.GetRandom(keys);
+    const decoys = Phaser.Utils.Array.Shuffle(keys.filter((key) => key !== this.ledgerTargetKey)).slice(0, 4);
+    const cipherWords = ["KAS_DESA", "VOID_SIG", "REKENING", "ASSET_LOCK", "DANA_GELAP", "TRANSFER"];
+    const cipher = `${Phaser.Utils.Array.GetRandom(cipherWords)}::${Phaser.Math.Between(10000, 99999)} membutuhkan akses`;
+
+    if (this.ledgerCipherText) {
+      this.ledgerCipherText.setText(cipher);
+    }
+    if (this.ledgerTargetText) {
+      this.ledgerTargetText.setText(`[ ${this.ledgerTargetKey} ]`);
+      this.ledgerTargetText.setScale(1.12);
+      this.tweens.add({
+        targets: this.ledgerTargetText,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 120,
+        ease: "Sine.easeOut"
+      });
+    }
+    if (this.ledgerDecoyText) {
+      this.ledgerDecoyText.setText(`Jebakan: ${decoys.join("  ")}`);
+    }
+  }
+
   handleLedgerKeyMash(event) {
     if (!this.ledgerHackActive || !event || event.repeat) {
       return;
     }
 
-    this.ledgerProgress = Math.min(100, this.ledgerProgress + Phaser.Math.Between(3, 6));
+    const key = String(event.key || "").toUpperCase();
+    if (!key || key.length !== 1) {
+      return;
+    }
+
+    if (key === this.ledgerTargetKey) {
+      this.ledgerStreak += 1;
+      const bonus = Math.min(6, this.ledgerStreak * 1.2);
+      this.ledgerProgress = Math.min(100, this.ledgerProgress + 6 + bonus);
+      this.ledgerAudit = Math.max(0, this.ledgerAudit - 4);
+      this.playLedgerKeyBlip(true);
+      this.setNextLedgerCipher();
+    } else {
+      this.ledgerStreak = 0;
+      this.ledgerProgress = Math.max(0, this.ledgerProgress - 4);
+      this.ledgerAudit = Math.min(100, this.ledgerAudit + 13);
+      this.playLedgerKeyBlip(false);
+      this.cameras.main.shake(160, 0.006);
+      if (this.ledgerTargetPanel) {
+        this.ledgerTargetPanel.setStrokeStyle(3, 0xff4f6d, 0.9);
+        this.time.delayedCall(160, () => {
+          if (this.ledgerTargetPanel) {
+            this.ledgerTargetPanel.setStrokeStyle(3, 0x7dffbd, 0.65);
+          }
+        });
+      }
+    }
+
     this.updateLedgerProgressUi();
     this.corruptLuxuryOffice(this.ledgerProgress);
     this.updateLedgerAudioIntensity();
 
     if (this.ledgerProgress >= 100) {
       this.finishLedgerHack();
+      return;
+    }
+
+    if (this.ledgerAudit >= 100) {
+      this.resetLedgerHackAttempt("Jejak audit terlalu tinggi. Mulai ulang akses.");
     }
   }
 
   updateLedgerProgressUi() {
     this.ledgerBarFill.width = Math.max(1, this.ledgerBarWidth * (this.ledgerProgress / 100));
-    this.ledgerProgressText.setText(`Dana Masuk ke Kantong: ${Math.floor(this.ledgerProgress)}%`);
-    this.cameras.main.shake(70, 0.0025);
+    this.ledgerProgressText.setText(`Transfer Gelap: ${Math.floor(this.ledgerProgress)}%  |  Streak: ${this.ledgerStreak}`);
+    if (this.ledgerAuditText) {
+      this.ledgerAuditText.setText(`Jejak Audit: ${Math.floor(this.ledgerAudit)}%  |  Waktu: ${this.ledgerTimeLeft.toFixed(1)}`);
+      this.ledgerAuditText.setColor(this.ledgerAudit >= 70 ? "#ff6f7e" : "#ffb7b7");
+    }
+    this.cameras.main.shake(45, 0.0014);
+  }
+
+  updateLedgerHackTimer() {
+    if (!this.ledgerHackActive) {
+      return;
+    }
+
+    this.ledgerTimeLeft = Math.max(0, this.ledgerTimeLeft - 0.25);
+    this.ledgerAudit = Math.min(100, this.ledgerAudit + 0.45);
+    this.updateLedgerProgressUi();
+
+    if (this.ledgerTimeLeft <= 0) {
+      this.resetLedgerHackAttempt("Waktu akses habis. Sistem dikunci ulang.");
+    }
+  }
+
+  resetLedgerHackAttempt(message) {
+    this.ledgerProgress = 0;
+    this.ledgerAudit = 20;
+    this.ledgerStreak = 0;
+    this.ledgerTimeLeft = 24;
+    this.updateLedgerProgressUi();
+    this.setNextLedgerCipher();
+    if (this.ledgerHintText) {
+      this.ledgerHintText.setText(message);
+      this.ledgerHintText.setColor("#ffb7b7");
+      this.time.delayedCall(1300, () => {
+        if (this.ledgerHackActive && this.ledgerHintText) {
+          this.ledgerHintText.setText("Ketik cipher hijau. Hindari tombol jebakan merah.");
+          this.ledgerHintText.setColor("#dbffe9");
+        }
+      });
+    }
   }
 
   corruptLuxuryOffice(progress) {
@@ -1299,6 +2280,11 @@ class SceneSiang extends BaseScene {
 
     this.input.keyboard.off("keydown", this.handleLedgerKeyMash, this);
     this.stopLedgerAudio();
+
+    if (this.ledgerHackTimer) {
+      this.ledgerHackTimer.remove(false);
+      this.ledgerHackTimer = null;
+    }
 
     if (this.ledgerRainTimer) {
       this.ledgerRainTimer.remove(false);
@@ -1938,11 +2924,11 @@ class SceneSiang extends BaseScene {
       const bass = this.ledgerAudioContext.createOscillator();
       const tick = this.ledgerAudioContext.createOscillator();
       const gain = this.ledgerAudioContext.createGain();
-      bass.type = "sawtooth";
-      tick.type = "square";
-      bass.frequency.setValueAtTime(70, this.ledgerAudioContext.currentTime);
-      tick.frequency.setValueAtTime(6, this.ledgerAudioContext.currentTime);
-      gain.gain.setValueAtTime(0.035, this.ledgerAudioContext.currentTime);
+      bass.type = "sine";
+      tick.type = "triangle";
+      bass.frequency.setValueAtTime(58, this.ledgerAudioContext.currentTime);
+      tick.frequency.setValueAtTime(2.5, this.ledgerAudioContext.currentTime);
+      gain.gain.setValueAtTime(0.006, this.ledgerAudioContext.currentTime);
       bass.connect(gain);
       tick.connect(gain);
       gain.connect(this.ledgerAudioContext.destination);
@@ -1962,9 +2948,33 @@ class SceneSiang extends BaseScene {
 
     const intensity = this.ledgerProgress / 100;
     const now = this.ledgerAudioContext.currentTime;
-    this.ledgerAudioNodes.bass.frequency.setTargetAtTime(70 + intensity * 160, now, 0.04);
-    this.ledgerAudioNodes.tick.frequency.setTargetAtTime(6 + intensity * 24, now, 0.04);
-    this.ledgerAudioNodes.gain.gain.setTargetAtTime(0.035 + intensity * 0.11, now, 0.04);
+    this.ledgerAudioNodes.bass.frequency.setTargetAtTime(58 + intensity * 48, now, 0.08);
+    this.ledgerAudioNodes.tick.frequency.setTargetAtTime(2.5 + intensity * 3.5, now, 0.08);
+    this.ledgerAudioNodes.gain.gain.setTargetAtTime(0.006 + intensity * 0.012, now, 0.08);
+  }
+
+  playLedgerKeyBlip(correct) {
+    if (!this.ledgerAudioContext || this.ledgerAudioContext.state !== "running") {
+      return;
+    }
+
+    const now = this.ledgerAudioContext.currentTime;
+    const oscillator = this.ledgerAudioContext.createOscillator();
+    const gain = this.ledgerAudioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(correct ? 620 : 180, now);
+    if (correct) {
+      oscillator.frequency.exponentialRampToValueAtTime(820, now + 0.07);
+    } else {
+      oscillator.frequency.exponentialRampToValueAtTime(120, now + 0.09);
+    }
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(correct ? 0.035 : 0.025, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    oscillator.connect(gain);
+    gain.connect(this.ledgerAudioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.14);
   }
 
   stopLedgerAudio() {
@@ -2091,7 +3101,7 @@ class SceneSiang extends BaseScene {
       ? CENTER_Y + Math.min(120, OFFICE_HEIGHT * 0.18)
       : this.wakeFromNightmare
         ? OFFICE_TOP + 258
-      : OFFICE_BOTTOM - 60;
+        : OFFICE_BOTTOM - 60;
     const playerLayoutId = gameState.leader === 2 && gameState.actTwoOfficeLuxury ? "luxuryOffice" : "office";
     this.player = this.createPlayerSprite(CENTER_X - 10, playerStartY, {
       depth: this.getEditorPlayerDepth(playerLayoutId)
@@ -5658,11 +6668,13 @@ class MiniGameScene extends BaseScene {
     this.shakeMultiplier = 1;
     this.rewardAmount = 100;
     this.secondRun = false;
+    this.timerBarFill = null;
+    this.feedbackText = null;
   }
 
   create(data) {
     this.numberTargets = [];
-    this.timeLimit = data && data.secondRun ? 16 : 10;
+    this.timeLimit = data && data.secondRun ? 18 : 14;
     this.remainingTime = this.timeLimit;
     this.gameEnded = false;
     this.nextHeartbeatAt = 0;
@@ -5670,19 +6682,24 @@ class MiniGameScene extends BaseScene {
     this.secondRun = Boolean(data && data.secondRun);
     this.shakeMultiplier = data && data.shakeMultiplier ? data.shakeMultiplier : 1;
     this.rewardAmount = data && data.reward ? data.reward : 100;
-    this.cameras.main.setBackgroundColor("#251d2a");
+    this.cameras.main.setBackgroundColor("#171019");
     this.input.setDefaultCursor("none");
 
+    this.createMiniGameBackdrop();
     this.add.text(CENTER_X, 68, "Manipulasi Angka", {
-      fontFamily: "Arial, sans-serif",
-      fontSize: "38px",
-      color: "#f5f7ff"
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: "42px",
+      color: "#fff5e8",
+      stroke: "#4a1e2a",
+      strokeThickness: 5
     }).setOrigin(0.5);
 
-    this.add.text(CENTER_X, 112, "Klik setiap angka 3 kali sebelum waktu habis.", {
-      fontFamily: "Arial, sans-serif",
+    this.add.text(CENTER_X, 112, "Samarkan 5 pos anggaran. Setiap pos butuh 3 cap revisi sebelum waktu habis.", {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "18px",
-      color: "#cbd5f0"
+      color: "#e8d6c8",
+      align: "center",
+      wordWrap: { width: Math.min(760, GAME_WIDTH - 80) }
     }).setOrigin(0.5);
 
     this.createStatusUi();
@@ -5700,57 +6717,150 @@ class MiniGameScene extends BaseScene {
     this.events.once("shutdown", this.shutdownMiniGame, this);
   }
 
-  createTimerUi() {
-    this.timerText = this.add.text(GAME_WIDTH - 32, 26, this.remainingTime.toFixed(1), {
-      fontFamily: "Courier New, monospace",
-      fontSize: "28px",
-      color: "#ffdddd"
-    }).setOrigin(1, 0);
+  createMiniGameBackdrop() {
+    this.add.rectangle(CENTER_X, CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x171019, 1).setDepth(-10);
 
-    this.progressText = this.add.text(GAME_WIDTH - 32, 62, "Angka bersih: 0/5", {
-      fontFamily: "Arial, sans-serif",
+    const glow = this.add.circle(CENTER_X, CENTER_Y + 40, Math.max(GAME_WIDTH, GAME_HEIGHT) * 0.42, 0x7b2f3a, 0.12).setDepth(-9);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+
+    for (let index = 0; index < 18; index += 1) {
+      const x = Phaser.Math.Between(40, GAME_WIDTH - 40);
+      const y = Phaser.Math.Between(150, GAME_HEIGHT - 40);
+      const width = Phaser.Math.Between(50, 120);
+      const line = this.add.rectangle(x, y, width, 2, 0x3f2d32, 0.32).setDepth(-8);
+      line.setRotation(Phaser.Math.FloatBetween(-0.18, 0.18));
+    }
+
+    this.add.rectangle(CENTER_X, 0, GAME_WIDTH, 130, 0x0b070c, 0.42).setOrigin(0.5, 0).setDepth(-7);
+  }
+
+  createTimerUi() {
+    const panelWidth = 260;
+    const panelX = GAME_WIDTH - 32;
+    const panelY = 24;
+    this.add.rectangle(panelX - panelWidth / 2, panelY + 40, panelWidth, 78, 0x120c12, 0.72)
+      .setOrigin(0.5)
+      .setStrokeStyle(2, 0x6f4a3f, 0.65)
+      .setDepth(20);
+
+    this.timerText = this.add.text(panelX - 16, panelY + 9, this.remainingTime.toFixed(1), {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: "30px",
+      color: "#ffe3df",
+      stroke: "#3d1418",
+      strokeThickness: 3
+    }).setOrigin(1, 0).setDepth(21);
+
+    this.progressText = this.add.text(panelX - 16, panelY + 44, "Direvisi: 0/5", {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "17px",
-      color: "#f1d7d7"
-    }).setOrigin(1, 0);
+      color: "#f3ddd3",
+      fontStyle: "bold"
+    }).setOrigin(1, 0).setDepth(21);
+
+    this.add.rectangle(panelX - panelWidth + 20, panelY + 66, panelWidth - 40, 8, 0x2c1c21, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(21);
+    this.timerBarFill = this.add.rectangle(panelX - panelWidth + 20, panelY + 66, panelWidth - 40, 8, 0xd85b5b, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(22);
   }
 
   createBudgetDocument() {
-    const documentPanel = this.add.rectangle(CENTER_X, 426, 760, 500, 0xfffdf7, 1);
-    documentPanel.setStrokeStyle(4, 0xddd1b8, 1);
+    const docWidth = Math.min(860, GAME_WIDTH - 150);
+    const docHeight = Math.min(540, GAME_HEIGHT - 210);
+    const docY = 430;
+    const top = docY - docHeight / 2;
+    const documentShadow = this.add.rectangle(CENTER_X + 12, docY + 14, docWidth, docHeight, 0x000000, 0.35);
+    const documentPanel = this.add.rectangle(CENTER_X, docY, docWidth, docHeight, 0xfffcf2, 1);
+    documentPanel.setStrokeStyle(5, 0xd7c59e, 1);
 
-    this.add.text(CENTER_X, 210, "Laporan Anggaran", {
-      fontFamily: "Arial, sans-serif",
-      fontSize: "34px",
-      color: "#232323"
+    this.add.rectangle(CENTER_X, top + 64, docWidth - 44, 78, 0xefe1c6, 1)
+      .setStrokeStyle(1, 0xd1bc94, 0.75);
+    this.add.rectangle(CENTER_X, top + 118, docWidth - 70, 3, 0xb03636, 0.55);
+
+    this.add.text(CENTER_X, top + 45, "Laporan Anggaran", {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: "38px",
+      color: "#2c2520"
     }).setOrigin(0.5);
 
-    this.add.text(CENTER_X, 252, "Proyek Pembangunan Jalan Desa", {
-      fontFamily: "Arial, sans-serif",
+    this.add.text(CENTER_X, top + 86, "Proyek Pembangunan Jalan Desa", {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "18px",
-      color: "#5b5b5b"
+      color: "#6f5d4a",
+      fontStyle: "bold"
     }).setOrigin(0.5);
 
+    this.add.text(CENTER_X - docWidth / 2 + 42, top + 132, "Pos", {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: "15px",
+      color: "#7d6752",
+      fontStyle: "bold"
+    }).setOrigin(0, 0.5);
+    this.add.text(CENTER_X + docWidth / 2 - 42, top + 132, "Nilai yang harus disamarkan", {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: "15px",
+      color: "#7d6752",
+      fontStyle: "bold"
+    }).setOrigin(1, 0.5);
+
+    const rowStartY = top + 172;
+    const rowGap = Math.min(66, (docHeight - 250) / 4);
+    const labels = ["Material aspal", "Sewa alat berat", "Upah harian", "Konsumsi rapat", "Dana cadangan"];
     const positions = [
-      { x: CENTER_X - 210, y: 330 },
-      { x: CENTER_X + 210, y: 330 },
-      { x: CENTER_X, y: 418 },
-      { x: CENTER_X - 210, y: 506 },
-      { x: CENTER_X + 210, y: 506 }
+      { x: CENTER_X + docWidth * 0.25, y: rowStartY },
+      { x: CENTER_X + docWidth * 0.25, y: rowStartY + rowGap },
+      { x: CENTER_X + docWidth * 0.25, y: rowStartY + rowGap * 2 },
+      { x: CENTER_X + docWidth * 0.25, y: rowStartY + rowGap * 3 },
+      { x: CENTER_X + docWidth * 0.25, y: rowStartY + rowGap * 4 }
     ];
 
-    positions.forEach((position) => {
-      const amountText = this.add.text(position.x, position.y, this.createRandomBudgetNumber(), {
+    positions.forEach((position, index) => {
+      const rowWidth = docWidth - 78;
+      const row = this.add.rectangle(CENTER_X, position.y, rowWidth, 52, index % 2 === 0 ? 0xfff6e5 : 0xf7ead2, 1)
+        .setStrokeStyle(1, 0xd6c3a1, 0.7);
+      this.add.text(CENTER_X - rowWidth / 2 + 22, position.y, labels[index], {
+        fontFamily: "'Nunito', Arial, sans-serif",
+        fontSize: "18px",
+        color: "#4f4032",
+        fontStyle: "bold"
+      }).setOrigin(0, 0.5);
+
+      const targetPanel = this.add.rectangle(position.x, position.y, 270, 42, 0x491b22, 0.08)
+        .setStrokeStyle(2, 0xb74848, 0.28);
+      const amountText = this.add.text(position.x - 24, position.y, this.createRandomBudgetNumber(), {
         fontFamily: "Courier New, monospace",
-        fontSize: "34px",
-        color: "#8d1f1f"
+        fontSize: "30px",
+        color: "#9d3333",
+        stroke: "#fff6ed",
+        strokeThickness: 2
       }).setOrigin(0.5);
+
+      const pips = [0, 1, 2].map((pipIndex) => {
+        return this.add.circle(position.x + 104 + (pipIndex * 17), position.y, 5, 0xb9a58a, 0.45);
+      });
+      const hitBounds = new Phaser.Geom.Rectangle(position.x - 150, position.y - 27, 300, 54);
 
       this.numberTargets.push({
         text: amountText,
+        panel: targetPanel,
+        row,
+        hitBounds,
+        pips,
+        x: position.x - 24,
+        y: position.y,
         clicks: 0,
         erased: false
       });
     });
+
+    this.feedbackText = this.add.text(CENTER_X, top + docHeight - 28, "Arahkan kursor ke angka merah lalu klik cepat.", {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: "16px",
+      color: "#7a5b45",
+      fontStyle: "bold"
+    }).setOrigin(0.5).setDepth(30);
   }
 
   createRandomBudgetNumber() {
@@ -5791,15 +6901,12 @@ class MiniGameScene extends BaseScene {
     this.ensureHeartbeatAudio();
 
     const clickedTarget = this.numberTargets.find((target) => {
-      return !target.erased && Phaser.Geom.Rectangle.Contains(
-        target.text.getBounds(),
-        this.cursorPoint.x,
-        this.cursorPoint.y
-      );
+      return !target.erased && Phaser.Geom.Rectangle.Contains(target.hitBounds, this.cursorPoint.x, this.cursorPoint.y);
     });
 
     if (!clickedTarget) {
-      this.cameras.main.shake(70, 0.002);
+      this.showMiniGameFeedback("Salah sasaran. Waktu tetap berjalan.", "#ffd0d0");
+      this.cameras.main.shake(80, 0.003);
       return;
     }
 
@@ -5808,8 +6915,26 @@ class MiniGameScene extends BaseScene {
 
   eraseNumber(target) {
     target.clicks += 1;
-    target.text.setAlpha(1 - (target.clicks * 0.2));
-    target.text.setScale(1 + (target.clicks * 0.04));
+    const pip = target.pips[target.clicks - 1];
+    if (pip) {
+      pip.setFillStyle(0xf2c65f, 1);
+      this.tweens.add({
+        targets: pip,
+        scaleX: 1.55,
+        scaleY: 1.55,
+        duration: 90,
+        yoyo: true,
+        ease: "Sine.easeOut"
+      });
+    }
+
+    target.panel.setFillStyle(0x6b2630, 0.12 + (target.clicks * 0.1));
+    target.text.setColor(target.clicks >= 2 ? "#713636" : "#9d3333");
+    target.text.setAlpha(1 - (target.clicks * 0.12));
+    target.text.setScale(1 + (target.clicks * 0.05));
+    this.showRevisionMark(target);
+    this.showMiniGameFeedback(`Cap revisi ${target.clicks}/3`, "#ffe8b5");
+
     this.tweens.add({
       targets: target.text,
       scaleX: 1,
@@ -5823,9 +6948,14 @@ class MiniGameScene extends BaseScene {
     }
 
     target.erased = true;
-    target.text.setText("0");
+    target.text.setText("DIREVISI");
     target.text.setAlpha(1);
-    target.text.setColor("#555555");
+    target.text.setFontFamily("'Fredoka', 'Nunito', Arial, sans-serif");
+    target.text.setFontSize("25px");
+    target.text.setColor("#315f43");
+    target.panel.setFillStyle(0x315f43, 0.13);
+    target.panel.setStrokeStyle(2, 0x4c8b5a, 0.6);
+    this.showMiniGameFeedback("Pos berhasil disamarkan.", "#c9ffd4");
     this.updateProgressUi();
 
     if (this.numberTargets.every((numberTarget) => numberTarget.erased)) {
@@ -5835,7 +6965,35 @@ class MiniGameScene extends BaseScene {
 
   updateProgressUi() {
     const erasedCount = this.numberTargets.filter((target) => target.erased).length;
-    this.progressText.setText(`Angka bersih: ${erasedCount}/${this.numberTargets.length}`);
+    this.progressText.setText(`Direvisi: ${erasedCount}/${this.numberTargets.length}`);
+  }
+
+  showRevisionMark(target) {
+    const slash = this.add.rectangle(target.x, target.y, 236, 4, 0xbf3333, 0.58).setRotation(-0.06).setDepth(35);
+    this.tweens.add({
+      targets: slash,
+      alpha: 0.18,
+      duration: 520,
+      ease: "Sine.easeOut"
+    });
+  }
+
+  showMiniGameFeedback(message, color) {
+    if (!this.feedbackText) {
+      return;
+    }
+
+    this.feedbackText.setText(message);
+    this.feedbackText.setColor(color);
+    this.feedbackText.setAlpha(1);
+    this.tweens.killTweensOf(this.feedbackText);
+    this.tweens.add({
+      targets: this.feedbackText,
+      alpha: 0.72,
+      duration: 260,
+      yoyo: true,
+      ease: "Sine.easeInOut"
+    });
   }
 
   updateCountdown() {
@@ -5845,9 +7003,15 @@ class MiniGameScene extends BaseScene {
 
     this.remainingTime = Math.max(0, this.remainingTime - 0.1);
     this.timerText.setText(this.remainingTime.toFixed(1));
+    if (this.timerBarFill) {
+      this.timerBarFill.scaleX = Phaser.Math.Clamp(this.remainingTime / this.timeLimit, 0, 1);
+    }
 
     if (this.remainingTime <= 3) {
       this.timerText.setColor("#ff6a6a");
+      if (this.timerBarFill) {
+        this.timerBarFill.setFillStyle(0xff4d4d, 1);
+      }
     }
 
     if (this.remainingTime <= 0) {
@@ -5869,7 +7033,7 @@ class MiniGameScene extends BaseScene {
   updateShakingCursor() {
     const pointer = this.input.activePointer;
     const urgency = 1 - (this.remainingTime / this.timeLimit);
-    const shakePower = Phaser.Math.Linear(3, 48, urgency) * this.shakeMultiplier;
+    const shakePower = Phaser.Math.Linear(2, 26, urgency) * this.shakeMultiplier;
     const offsetX = Phaser.Math.FloatBetween(-shakePower, shakePower);
     const offsetY = Phaser.Math.FloatBetween(-shakePower, shakePower);
     const pointerX = Number.isFinite(pointer.worldX) ? pointer.worldX : pointer.x;
@@ -5953,7 +7117,9 @@ class MiniGameScene extends BaseScene {
       this.timerEvent.remove(false);
     }
 
-    addPersonalWealth(this.rewardAmount);
+    if (succeeded) {
+      addPersonalWealth(this.rewardAmount);
+    }
 
     const resultMessage = succeeded
       ? "Jejak dihapus... tapi hati tidak tenang"
@@ -5969,6 +7135,15 @@ class MiniGameScene extends BaseScene {
     this.showResultMessage(resultMessage);
 
     this.time.delayedCall(2300, () => {
+      if (!succeeded) {
+        this.scene.restart({
+          secondRun: this.secondRun,
+          shakeMultiplier: this.shakeMultiplier,
+          reward: this.rewardAmount
+        });
+        return;
+      }
+
       gameState.act = 4;
       this.scene.start("SceneSiang", {
         returningFromMiniGame: true,
@@ -6017,17 +7192,24 @@ class MiniGameAct2 extends BaseScene {
     this.distortionGraphics = null;
     this.draggedBall = null;
     this.actTwoLeaderRun = false;
+    this.targetStolen = 300;
+    this.timerBarFill = null;
+    this.quotaFill = null;
+    this.feedbackText = null;
+    this.privateGlow = null;
+    this.villageGlow = null;
   }
 
   create(data) {
     this.budgetBalls = [];
-    this.duration = 15;
-    this.remainingTime = 15;
+    this.duration = 18;
+    this.remainingTime = this.duration;
     this.totalStolen = 0;
     this.gameEnded = false;
     this.draggedBall = null;
     this.actTwoLeaderRun = Boolean(data && data.actTwoLeaderRun);
-    this.cameras.main.setBackgroundColor("#141827");
+    this.targetStolen = this.actTwoLeaderRun ? 250 : 300;
+    this.cameras.main.setBackgroundColor("#0f1320");
     this.input.setDefaultCursor("grab");
 
     this.createStatusUi();
@@ -6038,7 +7220,7 @@ class MiniGameAct2 extends BaseScene {
 
     this.spawnBudgetBall();
     this.spawnTimer = this.time.addEvent({
-      delay: 620,
+      delay: 760,
       loop: true,
       callback: this.spawnBudgetBall,
       callbackScope: this
@@ -6055,10 +7237,20 @@ class MiniGameAct2 extends BaseScene {
     const columnWidth = boardWidth / 2;
     const boardCenterY = boardTop + (boardHeight / 2);
 
+    this.add.rectangle(CENTER_X, CENTER_Y, GAME_WIDTH, GAME_HEIGHT, 0x0f1320, 1).setDepth(-20);
+    this.add.circle(CENTER_X + boardWidth * 0.26, boardCenterY + 50, Math.max(boardWidth, boardHeight) * 0.42, 0x711f2d, 0.12)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(-18);
+    this.add.circle(CENTER_X - boardWidth * 0.3, boardCenterY + 40, Math.max(boardWidth, boardHeight) * 0.34, 0x1f6f59, 0.08)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(-18);
+
     this.add.rectangle(CENTER_X, boardCenterY, boardWidth, boardHeight, 0xf1f5f9, 1)
       .setStrokeStyle(4, 0x334155, 1);
     this.add.rectangle(CENTER_X, boardTop + 34, boardWidth, 68, 0xd8e2ef, 1)
       .setStrokeStyle(2, 0x8798aa, 1);
+    this.add.rectangle(CENTER_X, boardTop + boardHeight - 22, boardWidth, 44, 0xdce6ef, 1)
+      .setStrokeStyle(1, 0xa9b8c8, 0.75);
     this.add.line(0, 0, CENTER_X, boardTop, CENTER_X, boardTop + boardHeight, 0x73869b, 1)
       .setLineWidth(3);
 
@@ -6068,19 +7260,23 @@ class MiniGameAct2 extends BaseScene {
     }
 
     this.add.text(boardLeft + (columnWidth / 2), boardTop + 34, "Dana Desa", {
-      fontFamily: "Arial, sans-serif",
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
       fontSize: "30px",
       color: "#1e3a5f"
     }).setOrigin(0.5);
 
     this.add.text(boardLeft + columnWidth + (columnWidth / 2), boardTop + 34, "Kantong Pribadi", {
-      fontFamily: "Arial, sans-serif",
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
       fontSize: "30px",
       color: "#6e1f1f"
     }).setOrigin(0.5);
 
+    this.villageGlow = this.add.rectangle(boardLeft + (columnWidth / 2), boardCenterY + 28, columnWidth - 24, boardHeight - 100, 0x4bb274, 0.08)
+      .setStrokeStyle(5, 0x64d48e, 0.12);
     this.add.rectangle(boardLeft + (columnWidth / 2), boardCenterY + 28, columnWidth - 36, boardHeight - 112, 0xdff4e7, 0.62)
       .setStrokeStyle(2, 0x8ab69c, 0.8);
+    this.privateGlow = this.add.rectangle(boardLeft + columnWidth + (columnWidth / 2), boardCenterY + 28, columnWidth - 24, boardHeight - 100, 0xff5566, 0.08)
+      .setStrokeStyle(5, 0xff6a75, 0.12);
     this.add.rectangle(boardLeft + columnWidth + (columnWidth / 2), boardCenterY + 28, columnWidth - 36, boardHeight - 112, 0xfbe2e2, 0.68)
       .setStrokeStyle(2, 0xb95d5d, 0.9);
 
@@ -6088,35 +7284,82 @@ class MiniGameAct2 extends BaseScene {
     this.privateZone = new Phaser.Geom.Rectangle(boardLeft + columnWidth + 18, boardTop + 78, columnWidth - 36, boardHeight - 96);
 
     this.add.text(CENTER_X, 62, "Pembagian Anggaran Gelap", {
-      fontFamily: "Arial, sans-serif",
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
       fontSize: "38px",
       color: "#f8fafc",
       stroke: "#07111f",
       strokeThickness: 4
     }).setOrigin(0.5);
+
+    this.add.text(boardLeft + (columnWidth / 2), boardTop + boardHeight - 22, "Taruh file AUDIT di sini untuk dibuang", {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: "16px",
+      color: "#38634b",
+      fontStyle: "bold"
+    }).setOrigin(0.5);
+    this.add.text(boardLeft + columnWidth + (columnWidth / 2), boardTop + boardHeight - 22, `Target kantong: ${this.targetStolen}jt`, {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: "16px",
+      color: "#8b3131",
+      fontStyle: "bold"
+    }).setOrigin(0.5);
   }
 
   createActTwoHud() {
-    this.timerText = this.add.text(GAME_WIDTH - 28, 22, "15.0", {
-      fontFamily: "Courier New, monospace",
-      fontSize: "30px",
-      color: "#ffe1e1"
+    const panelWidth = 300;
+    const panelX = GAME_WIDTH - 24;
+    const panelY = 18;
+    this.add.rectangle(panelX - panelWidth / 2, panelY + 44, panelWidth, 86, 0x080b12, 0.78)
+      .setOrigin(0.5)
+      .setStrokeStyle(2, 0x53657a, 0.6)
+      .setDepth(219);
+
+    this.timerText = this.add.text(panelX - 18, panelY + 8, this.remainingTime.toFixed(1), {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: "32px",
+      color: "#ffe1e1",
+      stroke: "#3a1217",
+      strokeThickness: 3
     }).setOrigin(1, 0).setDepth(220);
 
-    this.totalText = this.add.text(GAME_WIDTH - 28, 62, "Uang diseret: 0", {
-      fontFamily: "Arial, sans-serif",
+    this.totalText = this.add.text(panelX - 18, panelY + 45, `Kantong: 0/${this.targetStolen}jt`, {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "18px",
-      color: "#fff4bd"
+      color: "#fff4bd",
+      fontStyle: "bold"
     }).setOrigin(1, 0).setDepth(220);
 
-    this.warningText = this.add.text(CENTER_X, GAME_HEIGHT - 34, "Seret bola anggaran ke Kantong Pribadi. Hindari file AUDIT merah.", {
-      fontFamily: "Arial, sans-serif",
+    this.add.rectangle(panelX - panelWidth + 20, panelY + 72, panelWidth - 40, 8, 0x263140, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(220);
+    this.timerBarFill = this.add.rectangle(panelX - panelWidth + 20, panelY + 72, panelWidth - 40, 8, 0xff6f6f, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(221);
+
+    this.add.rectangle(32, GAME_HEIGHT - 42, Math.min(360, GAME_WIDTH * 0.28), 12, 0x263140, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(220);
+    this.quotaFill = this.add.rectangle(32, GAME_HEIGHT - 42, Math.min(360, GAME_WIDTH * 0.28), 12, 0xf2c65f, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(221);
+    this.quotaFill.scaleX = 0;
+
+    this.warningText = this.add.text(CENTER_X, GAME_HEIGHT - 34, "Seret uang ke Kantong Pribadi. Buang file AUDIT merah ke Dana Desa.", {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "18px",
       color: "#e7edf7",
-      backgroundColor: "#141827",
+      backgroundColor: "#0f1320",
       padding: { x: 12, y: 7 },
       align: "center",
       wordWrap: { width: Math.min(900, GAME_WIDTH - 44) }
+    }).setOrigin(0.5).setDepth(220);
+
+    this.feedbackText = this.add.text(CENTER_X, GAME_HEIGHT - 72, "Kejar target sebelum timer habis.", {
+      fontFamily: "'Nunito', Arial, sans-serif",
+      fontSize: "16px",
+      color: "#cbd5e1",
+      fontStyle: "bold",
+      align: "center"
     }).setOrigin(0.5).setDepth(220);
   }
 
@@ -6146,9 +7389,11 @@ class MiniGameAct2 extends BaseScene {
       return;
     }
 
-    const isAudit = Phaser.Math.Between(1, 100) <= 18;
-    const amount = Phaser.Utils.Array.GetRandom([20, 35, 50, 75, 100]);
-    const x = Phaser.Math.Between(58, GAME_WIDTH - 58);
+    const isAudit = Phaser.Math.Between(1, 100) <= 22;
+    const amount = Phaser.Utils.Array.GetRandom([25, 35, 50, 75, 100]);
+    const spawnLeft = this.villageZone ? this.villageZone.x + 54 : 58;
+    const spawnRight = this.villageZone ? this.villageZone.right - 54 : GAME_WIDTH - 58;
+    const x = Phaser.Math.Between(spawnLeft, spawnRight);
     const ball = this.add.container(x, 104);
     ball.setSize(74, 74);
     ball.setDepth(90);
@@ -6159,19 +7404,23 @@ class MiniGameAct2 extends BaseScene {
       removed: false
     };
 
-    const ghostRed = this.add.circle(-5, 0, 31, 0xff2551, isAudit ? 0.22 : 0.18);
-    const ghostCyan = this.add.circle(5, 0, 31, 0x2df7ff, isAudit ? 0.18 : 0.14);
-    const fill = this.add.circle(0, 0, 30, isAudit ? 0xb31325 : 0xf7d15f, 1)
-      .setStrokeStyle(4, isAudit ? 0x5c0710 : 0x6f5218, 1);
+    const ghostRed = this.add.circle(-5, 0, isAudit ? 34 : 31, 0xff2551, isAudit ? 0.24 : 0.18);
+    const ghostCyan = this.add.circle(5, 0, isAudit ? 34 : 31, 0x2df7ff, isAudit ? 0.16 : 0.14);
+    const fill = isAudit
+      ? this.add.rectangle(0, 0, 64, 46, 0xb31325, 1).setStrokeStyle(4, 0x5c0710, 1)
+      : this.add.circle(0, 0, 30, 0xf7d15f, 1).setStrokeStyle(4, 0x6f5218, 1);
+    const shine = isAudit
+      ? this.add.rectangle(-16, -12, 18, 4, 0xffbcc5, 0.55)
+      : this.add.circle(-10, -10, 9, 0xfff3a8, 0.55);
     const label = this.add.text(0, -2, isAudit ? "AUDIT" : `${amount}jt`, {
-      fontFamily: "Arial, sans-serif",
-      fontSize: isAudit ? "15px" : "18px",
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: isAudit ? "14px" : "18px",
       color: isAudit ? "#ffffff" : "#1f2937",
       fontStyle: "bold"
     }).setOrigin(0.5);
 
     const hitHint = this.add.circle(0, 0, 40, 0xffffff, 0.001);
-    ball.add([hitHint, ghostRed, ghostCyan, fill, label]);
+    ball.add([hitHint, ghostRed, ghostCyan, fill, shine, label]);
     this.budgetBalls.push(ball);
 
     if (isAudit) {
@@ -6202,6 +7451,8 @@ class MiniGameAct2 extends BaseScene {
     this.draggedBall = ball;
     ball.ballData.dragging = true;
     ball.setDepth(240);
+    ball.setScale(1.08);
+    this.updateActTwoZoneGlow(ball);
     this.input.setDefaultCursor("grabbing");
   }
 
@@ -6212,6 +7463,7 @@ class MiniGameAct2 extends BaseScene {
 
     const pointerPosition = this.getActTwoPointerPosition(pointer);
     this.draggedBall.setPosition(pointerPosition.x, pointerPosition.y);
+    this.updateActTwoZoneGlow(this.draggedBall);
   }
 
   handleActTwoPointerUp() {
@@ -6228,6 +7480,8 @@ class MiniGameAct2 extends BaseScene {
 
     ball.ballData.dragging = false;
     ball.setDepth(90);
+    ball.setScale(1);
+    this.clearActTwoZoneGlow();
     this.input.setDefaultCursor("grab");
 
     if (Phaser.Geom.Rectangle.Contains(this.privateZone, ball.x, ball.y)) {
@@ -6236,7 +7490,35 @@ class MiniGameAct2 extends BaseScene {
     }
 
     if (Phaser.Geom.Rectangle.Contains(this.villageZone, ball.x, ball.y)) {
+      if (ball.ballData.isAudit) {
+        this.showActTwoFeedback("File AUDIT dibuang. Jalur aman.", "#c8ffd8");
+      }
       this.removeBudgetBall(ball);
+    }
+  }
+
+  updateActTwoZoneGlow(ball) {
+    if (!ball || !ball.ballData || !this.privateGlow || !this.villageGlow) {
+      return;
+    }
+
+    const privateHover = Phaser.Geom.Rectangle.Contains(this.privateZone, ball.x, ball.y);
+    const villageHover = Phaser.Geom.Rectangle.Contains(this.villageZone, ball.x, ball.y);
+    const wantsPrivate = !ball.ballData.isAudit;
+    this.privateGlow.setAlpha(privateHover ? (wantsPrivate ? 0.22 : 0.34) : 0.08);
+    this.villageGlow.setAlpha(villageHover ? (wantsPrivate ? 0.16 : 0.24) : 0.08);
+    this.privateGlow.setStrokeStyle(5, wantsPrivate ? 0xffc15f : 0xff3030, privateHover ? 0.72 : 0.12);
+    this.villageGlow.setStrokeStyle(5, wantsPrivate ? 0x64d48e : 0x9cffb8, villageHover ? 0.62 : 0.12);
+  }
+
+  clearActTwoZoneGlow() {
+    if (this.privateGlow) {
+      this.privateGlow.setAlpha(0.08);
+      this.privateGlow.setStrokeStyle(5, 0xff6a75, 0.12);
+    }
+    if (this.villageGlow) {
+      this.villageGlow.setAlpha(0.08);
+      this.villageGlow.setStrokeStyle(5, 0x64d48e, 0.12);
     }
   }
 
@@ -6274,10 +7556,42 @@ class MiniGameAct2 extends BaseScene {
     }
 
     this.totalStolen += ball.ballData.amount;
-    this.totalText.setText(`Uang diseret: ${this.totalStolen}`);
+    this.totalText.setText(`Kantong: ${this.totalStolen}/${this.targetStolen}jt`);
+    this.updateActTwoQuota();
+    this.showActTwoFeedback(`+${ball.ballData.amount}jt masuk kantong`, "#fff0a8");
     this.playCashBlip();
     this.cameras.main.shake(90, 0.0025);
     this.removeBudgetBall(ball);
+  }
+
+  updateActTwoQuota() {
+    if (!this.quotaFill) {
+      return;
+    }
+
+    this.quotaFill.scaleX = Phaser.Math.Clamp(this.totalStolen / this.targetStolen, 0, 1);
+    if (this.totalStolen >= this.targetStolen) {
+      this.quotaFill.setFillStyle(0x76d88f, 1);
+      this.showActTwoFeedback("Target tercapai. Bertahan sampai waktu habis.", "#c8ffd8");
+    }
+  }
+
+  showActTwoFeedback(message, color) {
+    if (!this.feedbackText) {
+      return;
+    }
+
+    this.feedbackText.setText(message);
+    this.feedbackText.setColor(color);
+    this.feedbackText.setAlpha(1);
+    this.tweens.killTweensOf(this.feedbackText);
+    this.tweens.add({
+      targets: this.feedbackText,
+      alpha: 0.7,
+      duration: 240,
+      yoyo: true,
+      ease: "Sine.easeInOut"
+    });
   }
 
   flashAuditWarning() {
@@ -6296,7 +7610,7 @@ class MiniGameAct2 extends BaseScene {
 
     this.time.delayedCall(1300, () => {
       if (!this.gameEnded && this.warningText) {
-        this.warningText.setText("Seret bola anggaran ke Kantong Pribadi. Hindari file AUDIT merah.");
+        this.warningText.setText("Seret uang ke Kantong Pribadi. Buang file AUDIT merah ke Dana Desa.");
         this.warningText.setColor("#e7edf7");
       }
     });
@@ -6322,9 +7636,15 @@ class MiniGameAct2 extends BaseScene {
 
     this.remainingTime = Math.max(0, this.remainingTime - (delta / 1000));
     this.timerText.setText(this.remainingTime.toFixed(1));
+    if (this.timerBarFill) {
+      this.timerBarFill.scaleX = Phaser.Math.Clamp(this.remainingTime / this.duration, 0, 1);
+    }
 
     if (this.remainingTime <= 5) {
       this.timerText.setColor("#ff6f6f");
+      if (this.timerBarFill) {
+        this.timerBarFill.setFillStyle(0xff4d4d, 1);
+      }
     }
 
     this.updateFallingBalls(delta);
@@ -6388,9 +7708,14 @@ class MiniGameAct2 extends BaseScene {
       this.spawnTimer = null;
     }
 
-    addPersonalWealth(this.totalStolen);
-    gameState.act = this.actTwoLeaderRun ? 2 : 6;
-    gameState.sanity = Math.max(0, gameState.sanity - 15);
+    const succeeded = this.totalStolen >= this.targetStolen;
+    if (succeeded) {
+      addPersonalWealth(this.totalStolen);
+      gameState.act = this.actTwoLeaderRun ? 2 : 6;
+      gameState.sanity = Math.max(0, gameState.sanity - 15);
+    } else {
+      gameState.integrity = Math.max(0, gameState.integrity - 15);
+    }
     this.updateStatusUi();
 
     [...this.budgetBalls].forEach((ball) => this.removeBudgetBall(ball));
@@ -6398,16 +7723,27 @@ class MiniGameAct2 extends BaseScene {
     this.add.rectangle(CENTER_X, CENTER_Y, Math.min(720, GAME_WIDTH - 80), 132, 0x090b12, 0.92)
       .setStrokeStyle(3, 0xffd37a, 0.55)
       .setDepth(300);
-    this.add.text(CENTER_X, CENTER_Y, `Total masuk kantong: ${this.totalStolen}\nMalam terasa lebih berat dari sebelumnya.`, {
-      fontFamily: "Arial, sans-serif",
+    const resultText = succeeded
+      ? `Total masuk kantong: ${this.totalStolen}jt\nMalam terasa lebih berat dari sebelumnya.`
+      : `Belum cukup rapi: ${this.totalStolen}/${this.targetStolen}jt\nUlangi pembagian sebelum laporan terkirim.`;
+    this.add.text(CENTER_X, CENTER_Y, resultText, {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "24px",
       color: "#ffffff",
+      fontStyle: "bold",
       align: "center",
       lineSpacing: 8
     }).setOrigin(0.5).setDepth(301);
 
     this.time.delayedCall(2300, () => {
       this.input.setDefaultCursor("default");
+
+      if (!succeeded) {
+        this.scene.restart({
+          actTwoLeaderRun: this.actTwoLeaderRun
+        });
+        return;
+      }
 
       if (this.actTwoLeaderRun) {
         this.scene.start("SceneSiang", {
@@ -6521,18 +7857,29 @@ class MiniGameLaundering extends BaseScene {
     this.spawnTimer = null;
     this.audioContext = null;
     this.bgmNodes = null;
+    this.routeNodes = [];
+    this.auditSentries = [];
+    this.routeGraphics = null;
+    this.routePoints = [];
+    this.targetWashed = 250;
+    this.timerBarFill = null;
+    this.washBarFill = null;
   }
 
   create() {
     this.funds = [];
     this.draggedFund = null;
     this.totalStolen = 0;
-    this.duration = 15;
-    this.remainingTime = 15;
+    this.duration = 22;
+    this.remainingTime = this.duration;
     this.gameEnded = false;
     this.secretZone = null;
     this.villageZone = null;
     this.spawnTimer = null;
+    this.routeNodes = [];
+    this.auditSentries = [];
+    this.routePoints = [];
+    this.targetWashed = 250;
     this.cameras.main.setBackgroundColor("#101827");
     this.input.setDefaultCursor("grab");
 
@@ -6540,11 +7887,12 @@ class MiniGameLaundering extends BaseScene {
     this.createLaunderingDashboard();
     this.createLaunderingHud();
     this.createGreedLayer();
+    this.createTransferRouteLayer();
     this.bindLaunderingInput();
 
     this.spawnFallingFund();
     this.spawnTimer = this.time.addEvent({
-      delay: 560,
+      delay: 1350,
       loop: true,
       callback: this.spawnFallingFund,
       callbackScope: this
@@ -6603,20 +7951,46 @@ class MiniGameLaundering extends BaseScene {
   }
 
   createLaunderingHud() {
-    this.timerText = this.add.text(GAME_WIDTH - 28, 22, "15.0", {
-      fontFamily: "Courier New, monospace",
-      fontSize: "30px",
-      color: "#ffe9e9"
+    const panelWidth = 300;
+    const panelX = GAME_WIDTH - 28;
+    const panelY = 18;
+    this.add.rectangle(panelX - panelWidth / 2, panelY + 48, panelWidth, 92, 0x07101b, 0.82)
+      .setOrigin(0.5)
+      .setStrokeStyle(2, 0x5db8d5, 0.58)
+      .setDepth(239);
+
+    this.timerText = this.add.text(panelX - 18, panelY + 8, this.remainingTime.toFixed(1), {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: "31px",
+      color: "#ffe9e9",
+      stroke: "#371218",
+      strokeThickness: 3
     }).setOrigin(1, 0).setDepth(240);
 
-    this.totalText = this.add.text(GAME_WIDTH - 28, 62, "Dicuci: 0 Juta", {
-      fontFamily: "Arial, sans-serif",
+    this.totalText = this.add.text(panelX - 18, panelY + 46, `Dicuci: 0/${this.targetWashed} Juta`, {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "18px",
-      color: "#fff3bd"
+      color: "#fff3bd",
+      fontStyle: "bold"
     }).setOrigin(1, 0).setDepth(240);
 
-    this.helpText = this.add.text(CENTER_X, GAME_HEIGHT - 34, "Seret dana ke Rekening Rahasia. Jangan sentuh AUDIT merah.", {
-      fontFamily: "Arial, sans-serif",
+    this.add.rectangle(panelX - panelWidth + 22, panelY + 76, panelWidth - 44, 8, 0x213044, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(240);
+    this.timerBarFill = this.add.rectangle(panelX - panelWidth + 22, panelY + 76, panelWidth - 44, 8, 0x5db8d5, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(241);
+
+    this.add.rectangle(32, GAME_HEIGHT - 42, Math.min(360, GAME_WIDTH * 0.28), 12, 0x213044, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(240);
+    this.washBarFill = this.add.rectangle(32, GAME_HEIGHT - 42, Math.min(360, GAME_WIDTH * 0.28), 12, 0xf4c95d, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(241);
+    this.washBarFill.scaleX = 0;
+
+    this.helpText = this.add.text(CENTER_X, GAME_HEIGHT - 34, "Ambil dana, lewati 3 titik lapis transfer, lalu masuk ke Rekening Rahasia. Hindari scanner AUDIT.", {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "18px",
       color: "#dff7ff",
       backgroundColor: "#0b1420",
@@ -6636,6 +8010,54 @@ class MiniGameLaundering extends BaseScene {
     this.greedPulse.setBlendMode(Phaser.BlendModes.ADD);
   }
 
+  createTransferRouteLayer() {
+    this.routeGraphics = this.add.graphics().setDepth(120);
+    const centerLeft = this.villageZone.x + this.villageZone.width * 0.55;
+    const centerRight = this.secretZone.x + this.secretZone.width * 0.45;
+    const midY = this.villageZone.y + this.villageZone.height * 0.48;
+    const nodeData = [
+      { x: centerLeft, y: midY - 128, label: "1" },
+      { x: CENTER_X, y: midY + 8, label: "2" },
+      { x: centerRight, y: midY - 92, label: "3" }
+    ];
+
+    this.routeNodes = nodeData.map((node) => {
+      const ring = this.add.circle(node.x, node.y, 30, 0x123545, 0.86)
+        .setStrokeStyle(4, 0x5db8d5, 0.8)
+        .setDepth(122);
+      const label = this.add.text(node.x, node.y, node.label, {
+        fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+        fontSize: "24px",
+        color: "#dff7ff",
+        stroke: "#06101a",
+        strokeThickness: 3
+      }).setOrigin(0.5).setDepth(123);
+
+      return { ...node, ring, label, active: false };
+    });
+
+    const sentryData = [
+      { x: CENTER_X - 90, y: midY - 74, minX: CENTER_X - 210, maxX: CENTER_X + 90, speed: 92, dir: 1 },
+      { x: CENTER_X + 170, y: midY + 96, minX: CENTER_X - 10, maxX: CENTER_X + 270, speed: 118, dir: -1 }
+    ];
+
+    this.auditSentries = sentryData.map((sentry) => {
+      const container = this.add.container(sentry.x, sentry.y).setDepth(130);
+      const glow = this.add.circle(0, 0, 46, 0xff173e, 0.18);
+      const body = this.add.circle(0, 0, 25, 0xc51324, 1).setStrokeStyle(4, 0x5a0710, 1);
+      const label = this.add.text(0, -2, "AUDIT", {
+        fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+        fontSize: "12px",
+        color: "#ffffff",
+        fontStyle: "bold"
+      }).setOrigin(0.5);
+      const lens = this.add.circle(12, 13, 8, 0xffffff, 0).setStrokeStyle(2, 0xffffff, 0.95);
+      const handle = this.add.line(0, 0, 19, 20, 28, 29, 0xffffff, 0.95).setLineWidth(3);
+      container.add([glow, body, label, lens, handle]);
+      return { ...sentry, container };
+    });
+  }
+
   bindLaunderingInput() {
     this.input.on("pointerdown", this.handleLaunderingPointerDown, this);
     this.input.on("pointermove", this.handleLaunderingPointerMove, this);
@@ -6644,47 +8066,38 @@ class MiniGameLaundering extends BaseScene {
   }
 
   spawnFallingFund() {
-    if (this.gameEnded) {
+    if (this.gameEnded || this.funds.length >= 5) {
       return;
     }
 
-    const isAudit = Phaser.Math.Between(1, 100) <= 20;
-    const amount = Phaser.Utils.Array.GetRandom([25, 40, 50, 75, 100]);
-    const x = Phaser.Math.Between(70, GAME_WIDTH - 70);
-    const fund = this.add.container(x, 102);
+    const amount = Phaser.Utils.Array.GetRandom([25, 40, 50, 75]);
+    const x = Phaser.Math.Between(this.villageZone.x + 60, this.villageZone.right - 60);
+    const y = Phaser.Math.Between(this.villageZone.y + 70, this.villageZone.bottom - 70);
+    const fund = this.add.container(x, y);
     fund.setDepth(90);
     fund.fundData = {
       amount,
-      isAudit,
+      isAudit: false,
       dragging: false,
-      removed: false
+      removed: false,
+      homeX: x,
+      homeY: y,
+      routeHits: [false, false, false],
+      phase: Phaser.Math.FloatBetween(0, Math.PI * 2)
     };
 
-    const glow = this.add.circle(0, 0, 42, isAudit ? 0xff1028 : 0xffe16a, isAudit ? 0.18 : 0.12);
-    const body = this.add.circle(0, 0, 31, isAudit ? 0xc51324 : 0xf4cf5b, 1)
-      .setStrokeStyle(4, isAudit ? 0x5a0710 : 0x705218, 1);
-    const icon = this.add.text(0, isAudit ? -4 : -2, isAudit ? "AUDIT" : `${amount}J`, {
-      fontFamily: "Arial, sans-serif",
-      fontSize: isAudit ? "13px" : "18px",
-      color: isAudit ? "#ffffff" : "#182235",
+    const glow = this.add.circle(0, 0, 42, 0xffe16a, 0.12);
+    const body = this.add.circle(0, 0, 31, 0xf4cf5b, 1)
+      .setStrokeStyle(4, 0x705218, 1);
+    const icon = this.add.text(0, -2, `${amount}J`, {
+      fontFamily: "'Fredoka', 'Nunito', Arial, sans-serif",
+      fontSize: "18px",
+      color: "#182235",
       fontStyle: "bold"
     }).setOrigin(0.5);
-    const lens = isAudit ? this.add.circle(13, 12, 8, 0xffffff, 0).setStrokeStyle(2, 0xffffff, 0.95) : null;
-    const handle = isAudit ? this.add.line(0, 0, 20, 20, 28, 28, 0xffffff, 0.95).setLineWidth(3) : null;
 
-    fund.add(isAudit ? [glow, body, icon, lens, handle] : [glow, body, icon]);
+    fund.add([glow, body, icon]);
     this.funds.push(fund);
-
-    if (isAudit) {
-      this.tweens.add({
-        targets: fund,
-        scaleX: 1.12,
-        scaleY: 1.12,
-        duration: 260,
-        yoyo: true,
-        repeat: -1
-      });
-    }
   }
 
   handleLaunderingPointerDown(pointer) {
@@ -6700,14 +8113,13 @@ class MiniGameLaundering extends BaseScene {
       return;
     }
 
-    if (fund.fundData.isAudit) {
-      this.triggerAuditPenalty(fund);
-      return;
-    }
-
     this.draggedFund = fund;
     fund.fundData.dragging = true;
+    fund.fundData.routeHits = [false, false, false];
+    this.routePoints = [{ x: fund.x, y: fund.y }];
+    this.resetRouteNodes();
     fund.setDepth(250);
+    fund.setScale(1.1);
     this.input.setDefaultCursor("grabbing");
   }
 
@@ -6718,6 +8130,12 @@ class MiniGameLaundering extends BaseScene {
 
     const pointerPosition = this.getLaunderingPointerPosition(pointer);
     this.draggedFund.setPosition(pointerPosition.x, pointerPosition.y);
+    this.routePoints.push({ x: pointerPosition.x, y: pointerPosition.y });
+    if (this.routePoints.length > 46) {
+      this.routePoints.shift();
+    }
+    this.updateTransferRoute();
+    this.checkRouteNodeHits();
     this.checkDraggedFundAuditCollision();
   }
 
@@ -6735,6 +8153,7 @@ class MiniGameLaundering extends BaseScene {
 
     fund.fundData.dragging = false;
     fund.setDepth(90);
+    fund.setScale(1);
     this.input.setDefaultCursor("grab");
 
     if (Phaser.Geom.Rectangle.Contains(this.secretZone, fund.x, fund.y)) {
@@ -6744,7 +8163,11 @@ class MiniGameLaundering extends BaseScene {
 
     if (Phaser.Geom.Rectangle.Contains(this.villageZone, fund.x, fund.y)) {
       this.removeLaunderingFund(fund);
+      this.clearTransferRoute();
+      return;
     }
+
+    this.returnFundHome(fund);
   }
 
   getLaunderingPointerPosition(pointer) {
@@ -6770,29 +8193,128 @@ class MiniGameLaundering extends BaseScene {
     return null;
   }
 
-  checkDraggedFundAuditCollision() {
-    if (!this.draggedFund || this.draggedFund.fundData.isAudit) {
+  resetRouteNodes() {
+    this.routeNodes.forEach((node) => {
+      node.active = false;
+      node.ring.setFillStyle(0x123545, 0.86);
+      node.ring.setStrokeStyle(4, 0x5db8d5, 0.8);
+      node.label.setColor("#dff7ff");
+    });
+  }
+
+  updateTransferRoute() {
+    if (!this.routeGraphics) {
       return;
     }
 
-    const auditFund = this.funds.find((fund) => {
-      return fund &&
-        fund.fundData &&
-        fund.fundData.isAudit &&
-        !fund.fundData.removed &&
-        Phaser.Math.Distance.Between(this.draggedFund.x, this.draggedFund.y, fund.x, fund.y) < 48;
+    this.routeGraphics.clear();
+    if (this.routePoints.length < 2) {
+      return;
+    }
+
+    this.routeGraphics.lineStyle(5, 0xf4c95d, 0.64);
+    this.routeGraphics.beginPath();
+    this.routeGraphics.moveTo(this.routePoints[0].x, this.routePoints[0].y);
+    for (let index = 1; index < this.routePoints.length; index += 1) {
+      this.routeGraphics.lineTo(this.routePoints[index].x, this.routePoints[index].y);
+    }
+    this.routeGraphics.strokePath();
+
+    this.routeGraphics.lineStyle(2, 0xffffff, 0.36);
+    this.routeGraphics.beginPath();
+    this.routeGraphics.moveTo(this.routePoints[0].x, this.routePoints[0].y);
+    for (let index = 1; index < this.routePoints.length; index += 1) {
+      this.routeGraphics.lineTo(this.routePoints[index].x, this.routePoints[index].y);
+    }
+    this.routeGraphics.strokePath();
+  }
+
+  clearTransferRoute() {
+    this.routePoints = [];
+    if (this.routeGraphics) {
+      this.routeGraphics.clear();
+    }
+    this.resetRouteNodes();
+  }
+
+  checkRouteNodeHits() {
+    if (!this.draggedFund || !this.draggedFund.fundData) {
+      return;
+    }
+
+    this.routeNodes.forEach((node, index) => {
+      if (node.active || Phaser.Math.Distance.Between(this.draggedFund.x, this.draggedFund.y, node.x, node.y) > 42) {
+        return;
+      }
+
+      node.active = true;
+      this.draggedFund.fundData.routeHits[index] = true;
+      node.ring.setFillStyle(0x2f7658, 0.95);
+      node.ring.setStrokeStyle(4, 0xc8ffd8, 1);
+      node.label.setColor("#ffffff");
+      this.playLaunderingBlip();
+      this.showLaunderingTip(`Lapis transfer ${index + 1}/3 aman.`, "#c8ffd8");
+    });
+  }
+
+  showLaunderingTip(message, color) {
+    if (!this.helpText) {
+      return;
+    }
+
+    this.helpText.setText(message);
+    this.helpText.setColor(color);
+    this.time.delayedCall(1100, () => {
+      if (!this.gameEnded && this.helpText) {
+        this.helpText.setText("Ambil dana, lewati 3 titik lapis transfer, lalu masuk ke Rekening Rahasia. Hindari scanner AUDIT.");
+        this.helpText.setColor("#dff7ff");
+      }
+    });
+  }
+
+  returnFundHome(fund) {
+    this.showLaunderingTip("Rute belum masuk rekening. Dana kembali ke pos awal.", "#ffe4a8");
+    this.clearTransferRoute();
+    this.tweens.add({
+      targets: fund,
+      x: fund.fundData.homeX,
+      y: fund.fundData.homeY,
+      duration: 260,
+      ease: "Sine.easeOut"
+    });
+  }
+
+  checkDraggedFundAuditCollision() {
+    if (!this.draggedFund) {
+      return;
+    }
+
+    const auditFund = this.auditSentries.find((sentry) => {
+      return Phaser.Math.Distance.Between(this.draggedFund.x, this.draggedFund.y, sentry.container.x, sentry.container.y) < 58;
     });
 
     if (auditFund) {
-      this.triggerAuditPenalty(auditFund);
+      this.triggerAuditPenalty(this.draggedFund);
     }
   }
 
   collectSecretFund(fund) {
+    if (!fund.fundData.routeHits.every(Boolean)) {
+      this.cameras.main.shake(120, 0.004);
+      this.showLaunderingTip("Rekening menolak dana mentah. Lewati semua titik lapis transfer.", "#ffd0d0");
+      this.returnFundHome(fund);
+      return;
+    }
+
     this.totalStolen += fund.fundData.amount;
-    this.totalText.setText(`Dicuci: ${this.totalStolen} Juta`);
+    this.totalText.setText(`Dicuci: ${this.totalStolen}/${this.targetWashed} Juta`);
+    if (this.washBarFill) {
+      this.washBarFill.scaleX = Phaser.Math.Clamp(this.totalStolen / this.targetWashed, 0, 1);
+    }
+    this.showLaunderingTip(`Dana ${fund.fundData.amount}J berhasil dicuci.`, "#fff0a8");
     this.playLaunderingBlip();
     this.cameras.main.shake(80, 0.002);
+    this.clearTransferRoute();
     this.removeLaunderingFund(fund);
   }
 
@@ -6801,7 +8323,10 @@ class MiniGameLaundering extends BaseScene {
     this.updateStatusUi();
     this.flashAuditScreen();
     this.playAuditSiren();
-    this.removeLaunderingFund(fund);
+    if (fund && fund.fundData) {
+      this.clearTransferRoute();
+      this.removeLaunderingFund(fund);
+    }
   }
 
   flashAuditScreen() {
@@ -6820,7 +8345,7 @@ class MiniGameLaundering extends BaseScene {
 
     this.time.delayedCall(1200, () => {
       if (!this.gameEnded && this.helpText) {
-        this.helpText.setText("Seret dana ke Rekening Rahasia. Jangan sentuh AUDIT merah.");
+        this.helpText.setText("Ambil dana, lewati 3 titik lapis transfer, lalu masuk ke Rekening Rahasia. Hindari scanner AUDIT.");
         this.helpText.setColor("#dff7ff");
       }
     });
@@ -6831,6 +8356,7 @@ class MiniGameLaundering extends BaseScene {
 
     if (this.draggedFund === fund) {
       this.draggedFund = null;
+      this.clearTransferRoute();
     }
 
     Phaser.Utils.Array.Remove(this.funds, fund);
@@ -6847,12 +8373,19 @@ class MiniGameLaundering extends BaseScene {
 
     this.remainingTime = Math.max(0, this.remainingTime - (delta / 1000));
     this.timerText.setText(this.remainingTime.toFixed(1));
+    if (this.timerBarFill) {
+      this.timerBarFill.scaleX = Phaser.Math.Clamp(this.remainingTime / this.duration, 0, 1);
+    }
 
     if (this.remainingTime <= 5) {
       this.timerText.setColor("#ff7474");
+      if (this.timerBarFill) {
+        this.timerBarFill.setFillStyle(0xff4d4d, 1);
+      }
     }
 
     this.updateLaunderingFunds(delta);
+    this.updateAuditSentries(delta);
     this.updateGreedEffects(time);
     this.updateLaunderingBgm();
 
@@ -6862,19 +8395,30 @@ class MiniGameLaundering extends BaseScene {
   }
 
   updateLaunderingFunds(delta) {
-    const speed = 116 + (this.totalStolen * 0.5) + ((this.duration - this.remainingTime) * 8);
-
     [...this.funds].forEach((fund) => {
       if (!fund.fundData || fund.fundData.dragging || fund.fundData.removed) {
         return;
       }
 
-      fund.y += speed * (delta / 1000);
+      fund.fundData.phase += delta * 0.003;
+      fund.y = fund.fundData.homeY + Math.sin(fund.fundData.phase) * 6;
+      fund.x = fund.fundData.homeX + Math.cos(fund.fundData.phase * 0.7) * 4;
+    });
+  }
 
-      if (fund.y > GAME_HEIGHT + 70) {
-        this.removeLaunderingFund(fund);
+  updateAuditSentries(delta) {
+    this.auditSentries.forEach((sentry) => {
+      sentry.container.x += sentry.speed * sentry.dir * (delta / 1000);
+      if (sentry.container.x > sentry.maxX) {
+        sentry.container.x = sentry.maxX;
+        sentry.dir = -1;
+      } else if (sentry.container.x < sentry.minX) {
+        sentry.container.x = sentry.minX;
+        sentry.dir = 1;
       }
     });
+
+    this.checkDraggedFundAuditCollision();
   }
 
   updateGreedEffects(time) {
@@ -6898,18 +8442,26 @@ class MiniGameLaundering extends BaseScene {
       this.spawnTimer = null;
     }
 
-    addPersonalWealth(this.totalStolen);
-    gameState.act = 2;
-    gameState.sanity = Math.max(0, gameState.sanity - 12);
-    gameState.actTwoOfficeLuxury = true;
+    const succeeded = this.totalStolen >= this.targetWashed;
+    if (succeeded) {
+      addPersonalWealth(this.totalStolen);
+      gameState.act = 2;
+      gameState.sanity = Math.max(0, gameState.sanity - 12);
+      gameState.actTwoOfficeLuxury = true;
+    } else {
+      gameState.integrity = Math.max(0, gameState.integrity - 15);
+    }
     this.updateStatusUi();
     [...this.funds].forEach((fund) => this.removeLaunderingFund(fund));
 
     this.add.rectangle(CENTER_X, CENTER_Y, Math.min(820, GAME_WIDTH - 80), 150, 0x080d14, 0.94)
       .setStrokeStyle(3, 0xffd15a, 0.62)
       .setDepth(310);
-    this.add.text(CENTER_X, CENTER_Y, `Total uang dicuri: ${this.totalStolen} Juta\nKantor diperbaiki, tapi perut warga masih kosong.`, {
-      fontFamily: "Arial, sans-serif",
+    const resultText = succeeded
+      ? `Total uang dicuci: ${this.totalStolen} Juta\nKantor diperbaiki, tapi perut warga masih kosong.`
+      : `Transfer gagal: ${this.totalStolen}/${this.targetWashed} Juta\nUlangi rute pencucian sebelum audit datang.`;
+    this.add.text(CENTER_X, CENTER_Y, resultText, {
+      fontFamily: "'Nunito', Arial, sans-serif",
       fontSize: "24px",
       color: "#ffffff",
       align: "center",
@@ -6918,6 +8470,11 @@ class MiniGameLaundering extends BaseScene {
     }).setOrigin(0.5).setDepth(311);
 
     this.time.delayedCall(2700, () => {
+      if (!succeeded) {
+        this.scene.restart();
+        return;
+      }
+
       this.scene.start("SceneSiang", {
         actTwoStart: true,
         actTwoAfterMiniGame: true,
@@ -6941,20 +8498,7 @@ class MiniGameLaundering extends BaseScene {
 
     try {
       this.audioContext = new AudioContextClass();
-      const bass = this.audioContext.createOscillator();
-      const pulse = this.audioContext.createOscillator();
-      const gain = this.audioContext.createGain();
-      bass.type = "sawtooth";
-      pulse.type = "square";
-      bass.frequency.setValueAtTime(92, this.audioContext.currentTime);
-      pulse.frequency.setValueAtTime(3.4, this.audioContext.currentTime);
-      gain.gain.setValueAtTime(0.045, this.audioContext.currentTime);
-      bass.connect(gain);
-      pulse.connect(gain);
-      gain.connect(this.audioContext.destination);
-      bass.start();
-      pulse.start();
-      this.bgmNodes = { bass, pulse, gain };
+      this.bgmNodes = null;
     } catch (error) {
       this.audioContext = null;
       this.bgmNodes = null;
@@ -6984,15 +8528,15 @@ class MiniGameLaundering extends BaseScene {
     const oscillator = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
     oscillator.type = "triangle";
-    oscillator.frequency.setValueAtTime(580, now);
-    oscillator.frequency.exponentialRampToValueAtTime(980, now + 0.08);
+    oscillator.frequency.setValueAtTime(520, now);
+    oscillator.frequency.exponentialRampToValueAtTime(680, now + 0.06);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.025, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
     oscillator.connect(gain);
     gain.connect(this.audioContext.destination);
     oscillator.start(now);
-    oscillator.stop(now + 0.17);
+    oscillator.stop(now + 0.12);
   }
 
   playAuditSiren() {
@@ -7006,16 +8550,16 @@ class MiniGameLaundering extends BaseScene {
     const oscillator = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
     oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(420, now);
-    oscillator.frequency.linearRampToValueAtTime(780, now + 0.24);
-    oscillator.frequency.linearRampToValueAtTime(420, now + 0.48);
+    oscillator.frequency.setValueAtTime(260, now);
+    oscillator.frequency.linearRampToValueAtTime(380, now + 0.18);
+    oscillator.frequency.linearRampToValueAtTime(260, now + 0.36);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.03, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
     oscillator.connect(gain);
     gain.connect(this.audioContext.destination);
     oscillator.start(now);
-    oscillator.stop(now + 0.58);
+    oscillator.stop(now + 0.42);
   }
 
   shutdownMiniGameLaundering() {
@@ -7312,19 +8856,7 @@ class SceneEnding extends BaseScene {
   }
 
   restartGame() {
-    gameState.integrity = 100;
-    gameState.wealth = 0;
-    gameState.personalWealth = 0;
-    gameState.totalCorrupted = 0;
-    gameState.sanity = 100;
-    gameState.act = 1;
-    gameState.leader = 1;
-    gameState.actTwoProjectAccepted = false;
-    gameState.actTwoOfficeLuxury = false;
-    gameState.actTwoLedgerDone = false;
-    gameState.sanityGlitched = false;
-    gameState.integrityGlitched = false;
-    gameState.actThreeStarted = false;
+    resetGameState();
     this.scene.start("SceneSiang");
   }
 }
@@ -7346,7 +8878,7 @@ const config = {
       debug: false
     }
   },
-  scene: [SceneSiang, SceneDesa, SceneRumah, SceneMalam, ScenePelantikan, MiniGameScene, MiniGameAct2, MiniGameLaundering, SceneEnding]
+  scene: [SceneMainMenu, SceneSiang, SceneDesa, SceneRumah, SceneMalam, ScenePelantikan, MiniGameScene, MiniGameAct2, MiniGameLaundering, SceneEnding]
 };
 
 window.game = new Phaser.Game(config);
